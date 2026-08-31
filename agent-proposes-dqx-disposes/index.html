@@ -624,10 +624,11 @@
               <text x="718" y="280" fill="var(--warn)" font-size="10">below &rarr; skip to audit</text>
 
               <path d="M454 330 L454 364" stroke="var(--ink-faint)" marker-end="url(#d-ah)"/>
+              <text x="462" y="352" fill="var(--accent-ink)" font-size="10">pass</text>
               <path d="M534 388 L598 388" stroke="var(--ink-faint)" marker-end="url(#d-ah)"/>
-              <path d="M454 388 L454 430 L454 430" fill="none" stroke="var(--ink-faint)"/>
-              <path d="M420 408 C 360 430, 360 300, 372 210 M400 250 L392 232 M400 250 L412 236" fill="none" stroke="var(--ink-faint)"/>
-              <text x="300" y="360" fill="var(--ink-faint)" font-size="10">revalidated_fail &rarr; retry (cap 3)</text>
+              <path d="M374 308 C 318 302, 318 190, 370 190" fill="none" stroke="var(--ink-faint)" stroke-dasharray="4 3" marker-end="url(#d-ah)"/>
+              <text x="150" y="243" fill="var(--ink-faint)" font-size="10">revalidated_fail</text>
+              <text x="150" y="256" fill="var(--ink-faint)" font-size="10">&rarr; retry (cap 3)</text>
             </g>
           </svg>
         </div>
@@ -803,7 +804,7 @@
 
       <figure class="reveal" style="margin-top:2.6rem;">
         <div class="figframe">
-          <svg viewBox="0 0 780 260" role="img" aria-labelledby="outcome" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 780 272" role="img" aria-labelledby="outcome" xmlns="http://www.w3.org/2000/svg">
             <title id="outcome">Illustrative outcome split for one run: about 51,412 rows resolved by the deterministic playbook, 168 fixed by the agent and reingested, 24 escalated to a human.</title>
             <g font-family="var(--font-mono)">
               <text x="0" y="42" font-family="var(--font-display)" font-weight="700" font-size="40" fill="var(--accent)">51,412</text>
@@ -826,7 +827,8 @@
               <circle cx="250" cy="212" r="4" fill="var(--warn)"/>
               <text x="262" y="216" font-size="11.5" fill="var(--ink-soft)">24 escalated to a human</text>
 
-              <text x="0" y="248" font-size="10.5" fill="var(--ink-faint)">Illustrative figures. The deterministic-first split is the point &#8212; the agent sees a fraction of a percent of the volume.</text>
+              <text x="0" y="246" font-size="10.5" fill="var(--ink-faint)">Illustrative figures. The deterministic-first split is the point &#8212; the agent</text>
+              <text x="0" y="262" font-size="10.5" fill="var(--ink-faint)">sees a fraction of a percent of the volume.</text>
             </g>
           </svg>
         </div>
