@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Proposes, DQX Disposes</title>
+<meta name="description" content="A data-quality dead-letter queue that heals itself: an LLM proposes fixes, deterministic re-validation decides what re-enters Silver.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400;1,8..60,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground: #F3F5F2;
+    --surface: #FFFFFF;
+    --sunk: #EBEEE9;
+    --ink: #1A1F1C;
+    --ink-soft: #495049;
+    --ink-faint: #79817A;
+    --rule: #D9DDD6;
+    --accent: #1E6B54;
+    --accent-ink: #16513F;
+    --accent-soft: #E3EFE8;
+    --warn: #A2652C;
+    --warn-soft: #F1E7D9;
+    --fail: #9B3B33;
+    --fail-soft: #F0DFDC;
+    --shadow: 0 1px 2px rgba(26,31,28,.04), 0 8px 24px -12px rgba(26,31,28,.12);
+
+    --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --font-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --measure: 42rem;
+    --wide: 60rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #121613;
+      --surface: #1A201C;
+      --sunk: #0F130F;
+      --ink: #E8ECE6;
+      --ink-soft: #A6AFA6;
+      --ink-faint: #79827A;
+      --rule: #2C332D;
+      --accent: #5CC0A0;
+      --accent-ink: #7FD1B5;
+      --accent-soft: #17281F;
+      --warn: #D49B65;
+      --warn-soft: #2C2318;
+      --fail: #D28178;
+      --fail-soft: #2D1D1B;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.55);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #121613;
+    --surface: #1A201C;
+    --sunk: #0F130F;
+    --ink: #E8ECE6;
+    --ink-soft: #A6AFA6;
+    --ink-faint: #79827A;
+    --rule: #2C332D;
+    --accent: #5CC0A0;
+    --accent-ink: #7FD1B5;
+    --accent-soft: #17281F;
+    --warn: #D49B65;
+    --warn-soft: #2C2318;
+    --fail: #D28178;
+    --fail-soft: #2D1D1B;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.55);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 1.1875rem;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    font-optical-sizing: auto;
+  }
+
+  .page {
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 0 1.4rem 6rem;
+  }
+
+  /* ---- rail ---- */
+  .rail { display: none; }
+
+  @media (min-width: 1140px) {
+    .page {
+      grid-template-columns: 15rem minmax(0, var(--wide));
+      justify-items: start;
+      column-gap: 2rem;
+      padding-right: 2rem;
+    }
+    .masthead, .flow, .content { grid-column: 2; }
+    .rail {
+      display: block;
+      grid-column: 1;
+      grid-row: 2 / 4;
+      position: sticky;
+      top: 2.5rem;
+      align-self: start;
+      padding-top: .4rem;
+      font-family: var(--font-mono);
+      font-size: .72rem;
+      letter-spacing: .04em;
+    }
+    .rail ol { list-style: none; margin: 0; padding: 0; }
+    .rail li {
+      display: flex;
+      align-items: baseline;
+      gap: .7rem;
+      padding: .5rem 0;
+      color: var(--ink-faint);
+      transition: color .25s ease;
+      line-height: 1.3;
+    }
+    .rail li::before {
+      content: "";
+      flex: none;
+      width: 7px; height: 7px;
+      margin-top: .15rem;
+      border-radius: 50%;
+      background: var(--rule);
+      box-shadow: 0 0 0 3px var(--ground);
+      transition: background .25s ease, transform .25s ease;
+    }
+    .rail li.is-active { color: var(--ink); }
+    .rail li.is-active::before { background: var(--accent); transform: scale(1.25); }
+    .rail li.is-done { color: var(--ink-soft); }
+    .rail li.is-done::before { background: var(--accent); opacity: .5; }
+    .rail .rail-track {
+      position: relative;
+      border-left: 1px solid var(--rule);
+      margin-left: 3px;
+      padding-left: 1rem;
+    }
+  }
+
+  /* ---- masthead ---- */
+  .masthead {
+    width: 100%;
+    max-width: var(--measure);
+    padding: 5rem 0 2.5rem;
+  }
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin: 0 0 1.6rem;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(2.6rem, 7vw, 4.35rem);
+    line-height: 1.02;
+    letter-spacing: -0.022em;
+    text-wrap: balance;
+    margin: 0 0 1.4rem;
+  }
+  h1 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .standfirst {
+    font-size: 1.32rem;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    margin: 0 0 2rem;
+    text-wrap: pretty;
+  }
+  .byline {
+    font-family: var(--font-mono);
+    font-size: .8rem;
+    color: var(--ink-faint);
+    letter-spacing: .02em;
+    border-top: 1px solid var(--rule);
+    padding-top: 1.1rem;
+  }
+  .byline a { color: var(--accent-ink); text-decoration: none; }
+  .byline a:hover { text-decoration: underline; }
+
+  /* ---- content ---- */
+  .content { width: 100%; max-width: var(--measure); }
+  .content > * { max-width: var(--measure); }
+
+  section { margin-top: 3.4rem; }
+  section.lede { margin-top: 2rem; }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.9rem;
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0 0 1.1rem;
+  }
+  h2 .h2-num {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: .8rem;
+    color: var(--accent-ink);
+    letter-spacing: .1em;
+    display: block;
+    margin-bottom: .5rem;
+  }
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.24rem;
+    letter-spacing: -0.01em;
+    margin: 2.3rem 0 .6rem;
+  }
+  p { margin: 0 0 1.2rem; }
+  .content a { color: var(--accent-ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+
+  ul { margin: 0 0 1.3rem; padding-left: 1.1rem; }
+  li { margin: 0 0 .55rem; padding-left: .3rem; }
+  li::marker { color: var(--accent); }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: .84em;
+    background: var(--sunk);
+    padding: .12em .38em;
+    border-radius: 4px;
+    border: 1px solid var(--rule);
+  }
+
+  /* ---- pull quote ---- */
+  .principle {
+    margin: 2.6rem 0;
+    padding: 0 0 0 1.4rem;
+    border-left: 3px solid var(--accent);
+  }
+  .principle p {
+    font-family: var(--font-body);
+    font-style: italic;
+    font-size: 1.5rem;
+    line-height: 1.34;
+    color: var(--ink);
+    margin: 0 0 .5rem;
+    text-wrap: pretty;
+  }
+  .principle .who {
+    font-family: var(--font-mono);
+    font-style: normal;
+    font-size: .74rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  /* ---- figures ---- */
+  figure {
+    margin: 2.4rem 0;
+    width: 100%;
+    max-width: var(--wide);
+  }
+  @media (min-width: 1140px) {
+    figure { max-width: var(--wide); }
+  }
+  .figframe {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 1.6rem;
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+  }
+  figure svg { display: block; width: 100%; height: auto; color: var(--ink); }
+  figcaption {
+    font-family: var(--font-mono);
+    font-size: .76rem;
+    line-height: 1.5;
+    color: var(--ink-faint);
+    margin-top: .85rem;
+    letter-spacing: .01em;
+  }
+  figcaption b { color: var(--ink-soft); font-weight: 600; }
+
+  /* screenshot placeholder */
+  .shot {
+    border: 1.5px dashed var(--rule);
+    border-radius: 10px;
+    background:
+      repeating-linear-gradient(-45deg, transparent, transparent 11px, var(--sunk) 11px, var(--sunk) 12px);
+    min-height: 15rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .6rem;
+    text-align: center;
+    padding: 2rem;
+  }
+  .shot .shot-tag {
+    font-family: var(--font-mono);
+    font-size: .74rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    padding: .3rem .6rem;
+    border-radius: 999px;
+  }
+  .shot p {
+    font-family: var(--font-mono);
+    font-size: .82rem;
+    color: var(--ink-soft);
+    max-width: 34rem;
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  /* ---- code block ---- */
+  .code {
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    margin: 2rem 0;
+    max-width: var(--wide);
+    overflow: hidden;
+  }
+  .code-head {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    padding: .7rem 1.1rem;
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+  }
+  .code pre {
+    margin: 0;
+    padding: 1.15rem 1.3rem;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: .82rem;
+    line-height: 1.7;
+    color: var(--ink);
+  }
+  .code .c { color: var(--ink-faint); }
+  .code .k { color: var(--accent-ink); }
+  .code .s { color: var(--warn); }
+
+  /* ---- chip grid ---- */
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin: 1.6rem 0 2rem;
+    max-width: var(--wide);
+  }
+  .chip {
+    font-family: var(--font-mono);
+    font-size: .8rem;
+    padding: .4rem .7rem;
+    border-radius: 6px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    color: var(--ink-soft);
+  }
+  .chip span { color: var(--ink-faint); }
+
+  /* ---- queue table ---- */
+  .tablewrap { max-width: var(--wide); margin: 2rem 0; overflow-x: auto; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: .8rem;
+  }
+  th, td {
+    text-align: left;
+    padding: .6rem .8rem;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  th {
+    font-weight: 600;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-size: .68rem;
+  }
+  td { color: var(--ink-soft); }
+  .pill {
+    display: inline-block;
+    padding: .16rem .5rem;
+    border-radius: 999px;
+    font-size: .72rem;
+    border: 1px solid;
+  }
+  .pill.pass { color: var(--accent-ink); background: var(--accent-soft); border-color: var(--accent); }
+  .pill.hold { color: var(--warn); background: var(--warn-soft); border-color: var(--warn); }
+  .pill.drop { color: var(--fail); background: var(--fail-soft); border-color: var(--fail); }
+  .pill.wait { color: var(--ink-faint); background: var(--sunk); border-color: var(--rule); }
+
+  /* ---- callout ---- */
+  .note {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 1.2rem 1.4rem;
+    margin: 2rem 0;
+    max-width: var(--measure);
+  }
+  .note p { margin: 0; font-size: 1.02rem; line-height: 1.55; }
+  .note .note-label {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    display: block;
+    margin-bottom: .4rem;
+  }
+
+  /* ---- close ---- */
+  .kicker-close {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.5rem;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    color: var(--accent);
+    margin: 2.4rem 0 0;
+    text-wrap: balance;
+  }
+
+  footer {
+    width: 100%;
+    max-width: var(--measure);
+    margin-top: 4.5rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    line-height: 1.7;
+    color: var(--ink-faint);
+  }
+  footer a { color: var(--accent-ink); text-decoration: none; }
+
+  .reveal { opacity: 0; transform: translateY(12px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; }
+    .reveal { opacity: 1 !important; transform: none !important; transition: none; }
+    .rail li, .rail li::before { transition: none; }
+  }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <p class="kicker">Data quality · self-healing pipelines</p>
+    <h1>Agent Proposes, <em>DQX Disposes</em></h1>
+    <p class="standfirst">Every serious data platform grows a dead-letter table, and it always becomes a graveyard. Here is how we turned one into a self-healing queue &mdash; without letting a language model anywhere near the warehouse.</p>
+    <p class="byline">By Kirthi &middot; <a href="https://medium.com/@kirthi.im">medium.com/@kirthi.im</a> &middot; ~9 min read</p>
+  </header>
+
+  <nav class="rail" aria-label="Pipeline stages">
+    <div class="rail-track">
+      <ol id="railList">
+        <li data-stage="triage">Triage</li>
+        <li data-stage="playbook">Playbook remediation</li>
+        <li data-stage="agent">Agent curation</li>
+        <li data-stage="probe">Cross-table probe</li>
+        <li data-stage="gate">Confidence gate</li>
+        <li data-stage="validate">Apply &amp; re-validate</li>
+        <li data-stage="reingest">Reingest</li>
+      </ol>
+    </div>
+  </nav>
+
+  <main class="content">
+
+    <section class="lede">
+      <p>Every data platform that takes quality seriously ends up with a dead-letter table. You run pre-commit checks, and the rows that fail don&rsquo;t go into Silver &mdash; they go into quarantine. It is the responsible thing to do. It is also, in practice, where data goes to die.</p>
+      <p>Nobody wants to open the quarantine table. The rows that land there are, by definition, the annoying ones: a code with a stray alphabetic prefix, a timestamp in the wrong format, a duplicate that got emitted twice, a foreign key that doesn&rsquo;t quite line up because one side trims whitespace and the other doesn&rsquo;t. Fixing them is fiddly, one-off work, and the backlog only grows.</p>
+      <p>We built a system that closes the loop. An LLM agent triages quarantined rows and proposes fixes. Those fixes are re-validated deterministically against the exact checks that quarantined the row in the first place. Only the rows that pass are merged back into Silver. Everything else escalates to a human review queue instead of looping forever.</p>
+      <p>The interesting part isn&rsquo;t the LLM. It&rsquo;s the constraints around it.</p>
+    </section>
+
+    <section>
+      <h2><span class="h2-num">01</span>Two design principles</h2>
+      <p>Everything in the system falls out of two rules we decided not to break.</p>
+
+      <div class="principle">
+        <p>&ldquo;The agent proposes. DQX disposes.&rdquo;</p>
+        <span class="who">Principle one</span>
+      </div>
+      <p>The agent never writes to Silver or Gold. Not once. Every agent-curated row is re-run through the same data-quality engine &mdash; we use <a href="https://databrickslabs.github.io/dqx/">DQX</a>, the Databricks Labs quality framework &mdash; that quarantined it. If the &ldquo;fix&rdquo; doesn&rsquo;t actually make the row pass the checks, it doesn&rsquo;t get in. This keeps a hallucinated correction from silently corrupting the warehouse, and it makes the whole thing auditable: the gate is code, not vibes.</p>
+
+      <div class="principle">
+        <p>&ldquo;Documented fixes beat guessed fixes.&rdquo;</p>
+        <span class="who">Principle two</span>
+      </div>
+      <p>If a rule owner has already written down exactly how a violation should be remediated &mdash; <em>&ldquo;primary-key collision on <code>customer_id</code>: keep the row with the latest <code>updated_at</code>, drop the rest&rdquo;</em> &mdash; then that fix is applied deterministically and the LLM never sees the row. The agent is the fallback for rules nobody has written a playbook for yet. It is not the default path.</p>
+      <p>That second principle matters more than it sounds. The cheapest, most reliable, most auditable model call is the one you never make.</p>
+
+      <figure class="reveal">
+        <div class="figframe">
+          <svg viewBox="0 0 640 400" role="img" aria-labelledby="loopcap">
+            <title id="loopcap">The re-ingestion loop: quarantined rows are fixed by a playbook or an agent, re-validated against the same DQX checks, and only passing rows merge back into Silver.</title>
+            <defs>
+              <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-faint)"/>
+              </marker>
+              <marker id="ahp" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/>
+              </marker>
+            </defs>
+            <g font-family="var(--font-mono)" font-size="13">
+              <!-- Silver -->
+              <rect x="255" y="20" width="130" height="52" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+              <text x="320" y="51" text-anchor="middle" fill="var(--accent-ink)" font-weight="600">Silver</text>
+
+              <!-- Quarantine -->
+              <rect x="35" y="150" width="170" height="52" rx="8" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="120" y="181" text-anchor="middle" fill="var(--ink)">quarantine table</text>
+
+              <!-- Playbook -->
+              <rect x="35" y="248" width="170" height="46" rx="8" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="120" y="276" text-anchor="middle" fill="var(--ink)">playbook fix</text>
+
+              <!-- Agent -->
+              <rect x="35" y="316" width="170" height="46" rx="8" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="120" y="344" text-anchor="middle" fill="var(--ink)">agent fix</text>
+
+              <!-- Re-validate -->
+              <rect x="285" y="270" width="200" height="70" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
+              <text x="385" y="299" text-anchor="middle" fill="var(--ink)" font-weight="600">re-validate</text>
+              <text x="385" y="319" text-anchor="middle" fill="var(--ink-faint)" font-size="11">same DQX checks</text>
+
+              <!-- Human queue -->
+              <rect x="285" y="150" width="200" height="52" rx="8" fill="var(--warn-soft)" stroke="var(--warn)"/>
+              <text x="385" y="181" text-anchor="middle" fill="var(--warn)">human review queue</text>
+
+              <!-- arrows -->
+              <path d="M262 55 C 150 70, 120 100, 120 144" fill="none" stroke="var(--ink-faint)" marker-end="url(#ah)"/>
+              <text x="95" y="112" fill="var(--ink-faint)" font-size="11">row fails</text>
+
+              <path d="M120 204 L120 244" fill="none" stroke="var(--ink-faint)" marker-end="url(#ah)"/>
+              <path d="M205 268 C 240 262, 250 250, 284 262" fill="none" stroke="var(--ink-faint)" marker-end="url(#ah)"/>
+              <path d="M205 336 C 250 336, 250 330, 300 340" fill="none" stroke="var(--ink-faint)" marker-end="url(#ah)"/>
+
+              <path d="M385 268 L385 206" fill="none" stroke="var(--warn)" marker-end="url(#ah)"/>
+              <text x="393" y="240" fill="var(--warn)" font-size="11">fail &middot; low confidence</text>
+
+              <path d="M470 272 C 520 230, 470 90, 388 74" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#ahp)"/>
+              <text x="505" y="170" fill="var(--accent-ink)" font-size="11">pass</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The loop. A quarantined row is fixed by a documented playbook strategy or, failing that, by the agent &mdash; then re-validated against the identical DQX checks before anything touches Silver.</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2><span class="h2-num">02</span>The shape of the pipeline</h2>
+      <p>The whole thing runs as a Databricks Workflow. Because a <em>For Each</em> task can only wrap a single task, not a sub-graph, the per-table pipeline is a child job that the parent fans out to &mdash; one child run per quarantine table.</p>
+
+      <figure class="reveal">
+        <div class="figframe">
+          <svg viewBox="0 0 940 470" role="img" aria-labelledby="dagcap">
+            <title id="dagcap">The parent job discovers quarantine tables and fans out with a For Each task; each child run walks triage, playbook, agent, gate, validate, reingest, audit.</title>
+            <defs>
+              <marker id="d-ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-faint)"/>
+              </marker>
+            </defs>
+            <g font-family="var(--font-mono)" font-size="12.5">
+              <!-- parent -->
+              <text x="20" y="30" fill="var(--accent-ink)" font-size="11" letter-spacing="1.5">PARENT &nbsp;&mdash;&nbsp; dqx_agentic_reingest</text>
+              <rect x="20" y="44" width="150" height="46" rx="7" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="95" y="66" text-anchor="middle" fill="var(--accent-ink)" font-size="10">01</text>
+              <text x="95" y="80" text-anchor="middle" fill="var(--ink)">discover</text>
+
+              <rect x="215" y="44" width="170" height="46" rx="7" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="300" y="66" text-anchor="middle" fill="var(--ink)">For Each</text>
+              <text x="300" y="80" text-anchor="middle" fill="var(--ink-faint)" font-size="10">quarantine FQN</text>
+
+              <rect x="430" y="44" width="170" height="46" rx="7" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="515" y="66" text-anchor="middle" fill="var(--ink)">run_job</text>
+              <text x="515" y="80" text-anchor="middle" fill="var(--ink-faint)" font-size="10">&rarr; child &times; N</text>
+
+              <path d="M170 67 L213 67" stroke="var(--ink-faint)" marker-end="url(#d-ah)"/>
+              <path d="M385 67 L428 67" stroke="var(--ink-faint)" marker-end="url(#d-ah)"/>
+
+              <line x1="20" y1="120" x2="920" y2="120" stroke="var(--rule)" stroke-dasharray="3 4"/>
+
+              <!-- child -->
+              <text x="20" y="150" fill="var(--accent-ink)" font-size="11" letter-spacing="1.5">CHILD &nbsp;&mdash;&nbsp; dqx_agentic_reingest_process &nbsp;(one run per table)</text>
+
+              <!-- row 1 -->
+              <rect x="20" y="168" width="132" height="44" rx="7" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="86" y="186" text-anchor="middle" fill="var(--accent-ink)" font-size="10">02</text>
+              <text x="86" y="200" text-anchor="middle" fill="var(--ink)">triage</text>
+
+              <rect x="188" y="168" width="150" height="44" rx="7" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="263" y="186" text-anchor="middle" fill="var(--accent-ink)" font-size="10">03a</text>
+              <text x="263" y="200" text-anchor="middle" fill="var(--ink)">playbook</text>
+
+              <rect x="374" y="168" width="150" height="44" rx="7" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="449" y="186" text-anchor="middle" fill="var(--accent-ink)" font-size="10">03</text>
+              <text x="449" y="200" text-anchor="middle" fill="var(--ink)">agent curate</text>
+
+              <!-- gate diamond -->
+              <path d="M604 152 L648 190 L604 228 L560 190 z" fill="var(--warn-soft)" stroke="var(--warn)"/>
+              <text x="604" y="186" text-anchor="middle" fill="var(--warn)" font-size="10">conf.</text>
+              <text x="604" y="199" text-anchor="middle" fill="var(--warn)" font-size="10">gate</text>
+
+              <path d="M152 190 L186 190" stroke="var(--ink-faint)" marker-end="url(#d-ah)"/>
+              <path d="M338 190 L372 190" stroke="var(--ink-faint)" marker-end="url(#d-ah)"/>
+              <path d="M524 190 L558 190" stroke="var(--ink-faint)" marker-end="url(#d-ah)"/>
+
+              <!-- row 2 -->
+              <rect x="374" y="286" width="160" height="44" rx="7" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="454" y="304" text-anchor="middle" fill="var(--accent-ink)" font-size="10">04</text>
+              <text x="454" y="318" text-anchor="middle" fill="var(--ink)">apply + validate</text>
+
+              <rect x="374" y="366" width="160" height="44" rx="7" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="454" y="384" text-anchor="middle" fill="var(--accent-ink)" font-size="10">05</text>
+              <text x="454" y="398" text-anchor="middle" fill="var(--ink)">reingest &rarr; Silver</text>
+
+              <rect x="600" y="366" width="150" height="44" rx="7" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="675" y="384" text-anchor="middle" fill="var(--accent-ink)" font-size="10">06</text>
+              <text x="675" y="398" text-anchor="middle" fill="var(--ink)">audit + metrics</text>
+
+              <path d="M604 228 L604 260 L454 260 L454 284" fill="none" stroke="var(--ink-faint)" marker-end="url(#d-ah)"/>
+              <text x="612" y="252" fill="var(--accent-ink)" font-size="10">conf &ge; threshold</text>
+
+              <path d="M648 190 L710 190 L710 364" fill="none" stroke="var(--warn)" marker-end="url(#d-ah)"/>
+              <text x="718" y="280" fill="var(--warn)" font-size="10">below &rarr; skip to audit</text>
+
+              <path d="M454 330 L454 364" stroke="var(--ink-faint)" marker-end="url(#d-ah)"/>
+              <path d="M534 388 L598 388" stroke="var(--ink-faint)" marker-end="url(#d-ah)"/>
+              <path d="M454 388 L454 430 L454 430" fill="none" stroke="var(--ink-faint)"/>
+              <path d="M420 408 C 360 430, 360 300, 372 210 M400 250 L392 232 M400 250 L412 236" fill="none" stroke="var(--ink-faint)"/>
+              <text x="300" y="360" fill="var(--ink-faint)" font-size="10">revalidated_fail &rarr; retry (cap 3)</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> The Workflow DAG. Parent discovers and fans out; each child run walks the same seven-stage path. <code>06</code> runs on <em>at least one success</em> of reingest or a false gate, so every table produces an audit row either way.</figcaption>
+      </figure>
+
+      <figure class="reveal">
+        <div class="shot" role="img" aria-label="Placeholder for a Databricks Workflows run-graph screenshot">
+          <span class="shot-tag">Screenshot &middot; swap in before publishing</span>
+          <p>Databricks &rarr; Workflows &rarr; <b>dqx_agentic_reingest</b> &rarr; a completed run &rarr; <b>Graph</b> view. Capture the parent job with the <code>For&nbsp;Each</code> task expanded so the per-table fan-out is visible.</p>
+        </div>
+        <figcaption><b>Figure 3.</b> Parent run graph &mdash; replace this panel with a real screenshot of a green run.</figcaption>
+      </figure>
+
+      <p>Each stage writes only to a control table &mdash; a review queue with one row per quarantined row per pass. Nothing touches Silver until the final merge, and that merge only ever sees rows that have already passed re-validation.</p>
+    </section>
+
+    <section data-stage="triage">
+      <h2><span class="h2-num">03</span>Triage</h2>
+      <p>Pull the unprocessed rows from one quarantine table, dedupe to the latest quarantined version per row, and flatten the failure metadata. DQX records failures as an array of structs &mdash; <code>{name, message, &hellip;}</code> &mdash; and triage flattens those names into a plain <code>array&lt;string&gt;</code> of violated rule names, then seeds the review queue with status <code>pending</code>.</p>
+      <p>It also captures the business key at this moment. Reconstructing a natural key later, after the row has been patched, is guesswork; capturing it at quarantine time is not.</p>
+    </section>
+
+    <section data-stage="playbook">
+      <h2><span class="h2-num">04</span>Playbook remediation &mdash; the deterministic half</h2>
+      <p>This is where documented fixes get applied. Each dataset has a YAML file &mdash; not in the codebase, but in a Unity Catalog Volume, so adding or changing a rule needs no deploy:</p>
+
+      <div class="code">
+        <div class="code-head">remediation_playbooks / silver_orders.yaml</div>
+<pre><span class="k">playbooks:</span>
+
+  <span class="c"># structurally broken &mdash; not a recoverable formatting slip</span>
+  - rule_name: <span class="s">code_not_matching_regex</span>
+    priority: 10
+    where: <span class="s">"code rlike '^[A-Za-z]'"</span>
+    strategy: <span class="s">reject_rows</span>
+    params: { reason: <span class="s">"alphabetic prefix on a numeric code"</span> }
+
+  <span class="c"># documented tie-breaker: keep the most recently updated row</span>
+  - rule_name: <span class="s">struct_customer_id_order_ts_is_not_unique</span>
+    priority: 20
+    strategy: <span class="s">dedupe_keep_latest</span>
+    params:
+      partition_by: <span class="s">[customer_id, order_ts]</span>
+      order_by: <span class="s">updated_at</span>
+      order_direction: <span class="s">desc</span>
+</pre>
+      </div>
+
+      <p>Entries run in priority order; the first one that matches a row wins. Three things we learned to bake in:</p>
+      <ul>
+        <li><strong><code>where</code> predicates let one rule route by value.</strong> <code>status = 'Duplicate'</code> goes to dedupe; <code>status = 'Invalid'</code> has no entry, so it falls through to the agent. Same rule, different handling, driven by the data.</li>
+        <li><strong><code>reject_rows</code> is a terminal state, not a failure.</strong> Some rows genuinely can&rsquo;t be recovered. Dropping them is a decision the rule owner made on purpose, and it is recorded as such &mdash; not retried, not escalated, not seen by the agent.</li>
+        <li><strong>Dedup is configured only here.</strong> The agent never deduplicates. Choosing which of two near-identical rows survives is a business call with a documented tie-breaker, not something to infer.</li>
+      </ul>
+      <p>The strategy <em>functions</em> &mdash; <code>dedupe_keep_latest</code>, <code>standardize_value</code>, <code>fill_default</code>, <code>reject_rows</code> &mdash; are code. A new <em>kind</em> of fix needs a deploy. A new <em>instance</em> of an existing kind is just a file upload. Behavior in code, policy in config: that split is what keeps the playbook maintainable by the people who own the rules rather than the people who own the pipeline.</p>
+    </section>
+
+    <section data-stage="agent">
+      <h2><span class="h2-num">05</span>Agent curation &mdash; the fallback</h2>
+      <p>Only rows with no playbook match reach the agent. And here is the decision that makes this affordable:</p>
+
+      <div class="principle">
+        <p>One model call per distinct violation signature. Not per row.</p>
+        <span class="who">The cost model</span>
+      </div>
+
+      <p>If 40,000 rows all failed the same check on the same column in the same way, that is <em>one</em> call. The model sees the rule name, the check function, the message, a sample of failing values, and up to five passing examples per flagged column. It returns a single deterministic <strong>transform</strong> per column, chosen from a fixed vocabulary:</p>
+
+      <div class="chips">
+        <span class="chip">trim</span>
+        <span class="chip">lower_trim</span>
+        <span class="chip">upper_trim</span>
+        <span class="chip">regexp_replace <span>{pattern, replacement}</span></span>
+        <span class="chip">regexp_extract <span>{pattern, group}</span></span>
+        <span class="chip">to_date <span>{from_format}</span></span>
+        <span class="chip">to_timestamp <span>{from_format}</span></span>
+        <span class="chip">left_pad <span>{length, pad}</span></span>
+        <span class="chip">right_pad <span>{length, pad}</span></span>
+        <span class="chip">substring <span>{pos, len}</span></span>
+        <span class="chip">set_default <span>{value}</span></span>
+        <span class="chip">set_null</span>
+      </div>
+
+      <p>Spark then applies that transform to every row in the signature. The model does not see 40,000 rows, does not write 40,000 fixes, and does not get to invent an expression. It picks <code>lower_trim</code> for a casing problem or <code>regexp_replace</code> to strip a known prefix, and that is the entire surface area. Token cost is independent of quarantine volume.</p>
+      <p>Transforms can be <strong>chained</strong> &mdash; strip a prefix, <em>then</em> zero-pad &mdash; which covers most of the real formatting damage: typos, column shifts, date formats, casing, padding, regex-strippable junk. And we guard against no-ops: if the model proposes <code>left_pad</code> on a string already at the target length, that is not a fix, and it gets downgraded to an escalation.</p>
+    </section>
+
+    <section data-stage="probe">
+      <h2><span class="h2-num">06</span>The cross-table probe &mdash; no model at all</h2>
+      <p>Referential-integrity checks &mdash; a row in table A must match a row in table B &mdash; are common, and the LLM is bad at them. So before the agent is involved, a deterministic probe runs: on a sample, normalize the compared column (<code>trim</code>, <code>lower_trim</code>, <code>upper_trim</code>) on both sides of the join and check whether the mismatch clears. If a normalization resolves, say, 95% of the sample, propose that transform. If it doesn&rsquo;t, escalate.</p>
+      <p>A surprising fraction of &ldquo;broken foreign keys&rdquo; are just one side of a join carrying trailing whitespace.</p>
+    </section>
+
+    <section data-stage="gate">
+      <h2><span class="h2-num">07</span>The confidence gate</h2>
+      <p>The agent attaches a confidence score to every <code>fix</code> decision. Between curation and application, a gate checks the <em>minimum</em> confidence across the batch against a threshold. Above it: proceed to auto-apply. Below it: skip straight to audit, and those rows wait for a human.</p>
+      <p>One low-confidence signature holds back the whole batch for that table. We would rather under-automate than merge a shaky fix.</p>
+    </section>
+
+    <section data-stage="validate">
+      <h2><span class="h2-num">08</span>Apply and re-validate</h2>
+      <p>For rows that clear the gate: apply the patch, strip every bookkeeping column, and re-run the row through <code>approved_checks_for(silver_table)</code> &mdash; the <em>same rules table</em> that quarantined it. Not a copy of the checks. Not a checks file that might have drifted. The same source. &ldquo;Re-run the exact checks that quarantined it&rdquo; is only true if both sides read from one place.</p>
+      <p>Rows that pass are staged. Rows that fail get <code>retry_count += 1</code> and go back into the queue. After three failed attempts a row auto-escalates regardless of confidence. Nothing loops forever.</p>
+    </section>
+
+    <section data-stage="reingest">
+      <h2><span class="h2-num">09</span>Reingest</h2>
+      <p>A dynamic <code>MERGE INTO</code> Silver, keyed on the business key that triage captured, columns intersected with the target schema. Every reingested row is tagged with lineage: <code>agent_curated = true</code>, the <code>confidence</code> score, the run id, the timestamp. Downstream consumers who don&rsquo;t trust agent-curated data can filter it out. That is their call to make, and we give them the column to make it with.</p>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>row_id</th><th>rule_violations</th><th>source</th><th>action</th><th>conf.</th><th>status</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>a1f3&hellip;</td><td>struct_&hellip;_is_not_unique</td><td>playbook</td><td>drop</td><td>1.00</td><td><span class="pill drop">resolved_duplicate</span></td></tr>
+            <tr><td>b8c0&hellip;</td><td>code_not_matching_regex</td><td>playbook</td><td>reject</td><td>1.00</td><td><span class="pill drop">rejected</span></td></tr>
+            <tr><td>c2d9&hellip;</td><td>order_date_bad_format</td><td>agent</td><td>patch_fields</td><td>0.94</td><td><span class="pill pass">reingested</span></td></tr>
+            <tr><td>d5e1&hellip;</td><td>region_not_in_list</td><td>agent</td><td>escalate</td><td>0.41</td><td><span class="pill hold">escalated</span></td></tr>
+            <tr><td>e7a4&hellip;</td><td>fk_customer_missing</td><td>agent</td><td>&mdash;</td><td>&mdash;</td><td><span class="pill wait">pending</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption style="font-family:var(--font-mono);font-size:.76rem;color:var(--ink-faint);margin-top:-1rem;"><b>Figure 4.</b> The review queue &mdash; one row per quarantined row per pass. Terminal states in green/red, human work in amber.</figcaption>
+
+      <figure class="reveal" style="margin-top:2.6rem;">
+        <div class="shot" role="img" aria-label="Placeholder for a screenshot of the review queue query results">
+          <span class="shot-tag">Screenshot &middot; swap in before publishing</span>
+          <p><code>SELECT status, count(*) FROM &hellip;._dq_review_queue GROUP BY status</code> in the Databricks SQL editor, or the run&rsquo;s <b>06 audit</b> task output. Show the split: resolved / reingested / escalated.</p>
+        </div>
+        <figcaption><b>Figure 5.</b> Outcome breakdown for a run &mdash; replace with a real query result.</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2><span class="h2-num">10</span>Dry runs</h2>
+      <p>Because &ldquo;an LLM will now edit rows that flow into our warehouse&rdquo; is a sentence that makes people nervous, there are two ways to see what <em>would</em> happen without committing anything.</p>
+      <ul>
+        <li>A <strong>read-only estimate</strong> that computes the deterministic half for real &mdash; match, apply strategy, re-validate &mdash; and reports the agent half as a count only. The model is never called. One row per table into a report table, nothing else.</li>
+        <li>A <strong>full dry run</strong> that runs the whole pipeline, calls the agent, writes the queue and the staging table &mdash; but holds the final <code>MERGE</code> and instead reports the exact insert/update split against Silver.</li>
+      </ul>
+      <p>Run the first before you turn the system on. Run the second in staging when you want to see precisely what will land.</p>
+    </section>
+
+    <section>
+      <h2><span class="h2-num">11</span>What this bought us</h2>
+      <p>The quarantine table stopped being a graveyard. On the first real run, the large majority of quarantined rows resolved deterministically &mdash; dedup and structural rejects that rule owners had already documented. A few hundred went to the agent. A couple dozen genuinely needed a human, and those are the ones a person should be looking at.</p>
+      <p>The lesson we keep relearning: the LLM is the least important component. The value is in the scaffolding &mdash; the deterministic-first routing, the fixed transform vocabulary, the re-validation gate, the retry cap, the confidence threshold, the dry runs. The agent is a fallback that turns &ldquo;a human triages every weird row&rdquo; into &ldquo;a human triages the genuinely ambiguous ones.&rdquo;</p>
+      <p class="kicker-close">Agent proposes. DQX disposes. Silver stays clean.</p>
+    </section>
+
+    <footer>
+      Built on Databricks &mdash; <a href="https://databrickslabs.github.io/dqx/">DQX</a> for quality checking, serverless jobs for orchestration, <code>ai_query()</code> for the model calls. Remediation playbooks live in a Unity Catalog Volume so rule owners maintain them without a deploy.<br>
+      &copy; 2026 Kirthi &middot; <a href="https://medium.com/@kirthi.im">medium.com/@kirthi.im</a>
+    </footer>
+
+  </main>
+</div>
+
+<script>
+  (function () {
+    var stages = Array.prototype.slice.call(document.querySelectorAll("section[data-stage]"));
+    var items = {};
+    document.querySelectorAll("#railList li").forEach(function (li) { items[li.dataset.stage] = li; });
+
+    if (stages.length && "IntersectionObserver" in window) {
+      var seen = new Set();
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          var key = e.target.dataset.stage;
+          if (e.isIntersecting) seen.add(key);
+        });
+        // active = last stage whose top has passed the 40% line
+        var active = null;
+        stages.forEach(function (s) {
+          var r = s.getBoundingClientRect();
+          if (r.top < window.innerHeight * 0.4) active = s.dataset.stage;
+        });
+        Object.keys(items).forEach(function (k) {
+          items[k].classList.toggle("is-active", k === active);
+        });
+        var passedActive = active === null;
+        stages.forEach(function (s) {
+          var k = s.dataset.stage;
+          if (k === active) { passedActive = true; return; }
+          items[k].classList.toggle("is-done", !passedActive);
+        });
+      }, { threshold: [0, 0.4, 1], rootMargin: "0px 0px -55% 0px" });
+      stages.forEach(function (s) { io.observe(s); });
+
+      window.addEventListener("scroll", function () {
+        var active = null;
+        stages.forEach(function (s) {
+          if (s.getBoundingClientRect().top < window.innerHeight * 0.4) active = s.dataset.stage;
+        });
+        var passed = active === null;
+        Object.keys(items).forEach(function (k) {
+          items[k].classList.toggle("is-active", k === active);
+        });
+        stages.forEach(function (s) {
+          var k = s.dataset.stage;
+          if (k === active) { passed = true; return; }
+          items[k].classList.toggle("is-done", !passed);
+        });
+      }, { passive: true });
+    }
+
+    if (!window.matchMedia || !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if ("IntersectionObserver" in window) {
+        var r = new IntersectionObserver(function (es) {
+          es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); r.unobserve(e.target); } });
+        }, { rootMargin: "0px 0px -10% 0px" });
+        document.querySelectorAll(".reveal").forEach(function (el) { r.observe(el); });
+      }
+    } else {
+      document.querySelectorAll(".reveal").forEach(function (el) { el.classList.add("in"); });
+    }
+  })();
+</script>
+</body>
+</html>

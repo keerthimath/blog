@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kirthi — Writing</title>
+<meta name="description" content="Notes on data engineering, data quality, and the systems around them.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #F3F5F2;
+    --surface: #FFFFFF;
+    --ink: #1A1F1C;
+    --ink-soft: #495049;
+    --ink-faint: #79817A;
+    --rule: #D9DDD6;
+    --accent: #1E6B54;
+    --accent-ink: #16513F;
+    --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --font-body: "Source Serif 4", Georgia, serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #121613; --surface: #1A201C; --ink: #E8ECE6; --ink-soft: #A6AFA6;
+      --ink-faint: #79827A; --rule: #2C332D; --accent: #5CC0A0; --accent-ink: #7FD1B5;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #121613; --surface: #1A201C; --ink: #E8ECE6; --ink-soft: #A6AFA6;
+    --ink-faint: #79827A; --rule: #2C332D; --accent: #5CC0A0; --accent-ink: #7FD1B5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--font-body); font-size: 1.125rem; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 40rem; margin: 0 auto; padding: 6rem 1.5rem 5rem; }
+  .kicker {
+    font-family: var(--font-mono); font-size: .78rem; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--accent-ink); margin: 0 0 1.4rem;
+  }
+  h1 {
+    font-family: var(--font-display); font-weight: 800; font-size: 2.6rem;
+    line-height: 1.05; letter-spacing: -.02em; margin: 0 0 .8rem;
+  }
+  .intro { color: var(--ink-soft); font-size: 1.2rem; margin: 0 0 3.5rem; max-width: 34rem; }
+  .posts { list-style: none; margin: 0; padding: 0; }
+  .posts li { border-top: 1px solid var(--rule); padding: 1.8rem 0; }
+  .posts a.title {
+    font-family: var(--font-display); font-weight: 700; font-size: 1.5rem;
+    letter-spacing: -.015em; color: var(--ink); text-decoration: none;
+    display: inline-block; margin-bottom: .5rem;
+  }
+  .posts a.title:hover { color: var(--accent); }
+  .meta {
+    font-family: var(--font-mono); font-size: .74rem; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--ink-faint); margin-bottom: .7rem;
+  }
+  .blurb { color: var(--ink-soft); margin: 0; font-size: 1.05rem; }
+  .blurb a { color: var(--accent-ink); }
+  footer {
+    margin-top: 4rem; padding-top: 1.4rem; border-top: 1px solid var(--rule);
+    font-family: var(--font-mono); font-size: .78rem; color: var(--ink-faint);
+  }
+  footer a { color: var(--accent-ink); text-decoration: none; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="kicker">Writing</p>
+    <h1>Kirthi</h1>
+    <p class="intro">Notes on data engineering, data quality, and the systems that hold them together.</p>
+
+    <ul class="posts">
+      <li>
+        <div class="meta">2026-08-31 &middot; Data quality</div>
+        <a class="title" href="./agent-proposes-dqx-disposes/">Agent Proposes, DQX Disposes</a>
+        <p class="blurb">A data-quality dead-letter table always becomes a graveyard. How we turned one into a self-healing queue &mdash; an LLM proposes fixes, deterministic re-validation decides what re-enters Silver. <a href="./agent-proposes-dqx-disposes/">Read &rarr;</a></p>
+      </li>
+    </ul>
+
+    <footer>
+      <a href="https://github.com/keerthimath">github.com/keerthimath</a> &middot; <a href="https://medium.com/@kirthi.im">medium.com/@kirthi.im</a>
+    </footer>
+  </div>
+</body>
+</html>
