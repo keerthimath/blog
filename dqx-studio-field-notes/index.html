@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Everything The Docs Don't Say Yet</title>
+<meta name="description" content="DQX Studio already has its own documentation. This is what we added on top of it and around it: natural-language previews, a validator library ingestion jobs call directly, a closed remediation loop, and the production edge cases in between.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400;1,8..60,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground: #F3F5F2;
+    --surface: #FFFFFF;
+    --sunk: #EBEEE9;
+    --ink: #1A1F1C;
+    --ink-soft: #495049;
+    --ink-faint: #79817A;
+    --rule: #D9DDD6;
+    --accent: #1E6B54;
+    --accent-ink: #16513F;
+    --accent-soft: #E3EFE8;
+    --warn: #A2652C;
+    --warn-soft: #F1E7D9;
+    --fail: #9B3B33;
+    --fail-soft: #F0DFDC;
+    --shadow: 0 1px 2px rgba(26,31,28,.04), 0 8px 24px -12px rgba(26,31,28,.12);
+
+    --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --font-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --measure: 42rem;
+    --wide: 60rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #121613;
+      --surface: #1A201C;
+      --sunk: #0F130F;
+      --ink: #E8ECE6;
+      --ink-soft: #A6AFA6;
+      --ink-faint: #79827A;
+      --rule: #2C332D;
+      --accent: #5CC0A0;
+      --accent-ink: #7FD1B5;
+      --accent-soft: #17281F;
+      --warn: #D49B65;
+      --warn-soft: #2C2318;
+      --fail: #D28178;
+      --fail-soft: #2D1D1B;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.55);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #121613;
+    --surface: #1A201C;
+    --sunk: #0F130F;
+    --ink: #E8ECE6;
+    --ink-soft: #A6AFA6;
+    --ink-faint: #79827A;
+    --rule: #2C332D;
+    --accent: #5CC0A0;
+    --accent-ink: #7FD1B5;
+    --accent-soft: #17281F;
+    --warn: #D49B65;
+    --warn-soft: #2C2318;
+    --fail: #D28178;
+    --fail-soft: #2D1D1B;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.55);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 1.1875rem;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    font-optical-sizing: auto;
+  }
+
+  .page {
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 0 1.4rem 6rem;
+  }
+
+  .rail { display: none; }
+
+  @media (min-width: 1140px) {
+    .page {
+      grid-template-columns: 15rem minmax(0, var(--wide));
+      justify-items: start;
+      column-gap: 2rem;
+      padding-right: 2rem;
+    }
+    .masthead, .flow, .content { grid-column: 2; }
+    .rail {
+      display: block;
+      grid-column: 1;
+      grid-row: 2 / 4;
+      position: sticky;
+      top: 2.5rem;
+      align-self: start;
+      padding-top: .4rem;
+      font-family: var(--font-mono);
+      font-size: .72rem;
+      letter-spacing: .04em;
+    }
+    .rail ol { list-style: none; margin: 0; padding: 0; }
+    .rail li {
+      display: flex;
+      align-items: baseline;
+      gap: .7rem;
+      padding: .5rem 0;
+      color: var(--ink-faint);
+      transition: color .25s ease;
+      line-height: 1.3;
+    }
+    .rail li::before {
+      content: "";
+      flex: none;
+      width: 7px; height: 7px;
+      margin-top: .15rem;
+      border-radius: 50%;
+      background: var(--rule);
+      box-shadow: 0 0 0 3px var(--ground);
+      transition: background .25s ease, transform .25s ease;
+    }
+    .rail li.is-active { color: var(--ink); }
+    .rail li.is-active::before { background: var(--accent); transform: scale(1.25); }
+    .rail li.is-done { color: var(--ink-soft); }
+    .rail li.is-done::before { background: var(--accent); opacity: .5; }
+    .rail .rail-track {
+      position: relative;
+      border-left: 1px solid var(--rule);
+      margin-left: 3px;
+      padding-left: 1rem;
+    }
+  }
+
+  .masthead {
+    width: 100%;
+    max-width: var(--measure);
+    padding: 5rem 0 2.5rem;
+  }
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin: 0 0 1.6rem;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(2.6rem, 7vw, 4.35rem);
+    line-height: 1.02;
+    letter-spacing: -0.022em;
+    text-wrap: balance;
+    margin: 0 0 1.4rem;
+  }
+  h1 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .standfirst {
+    font-size: 1.32rem;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    margin: 0 0 2rem;
+    text-wrap: pretty;
+  }
+  .byline {
+    font-family: var(--font-mono);
+    font-size: .8rem;
+    color: var(--ink-faint);
+    letter-spacing: .02em;
+    border-top: 1px solid var(--rule);
+    padding-top: 1.1rem;
+  }
+  .byline a { color: var(--accent-ink); text-decoration: none; }
+  .byline a:hover { text-decoration: underline; }
+
+  .content { width: 100%; max-width: var(--measure); }
+  .content > * { max-width: var(--measure); }
+
+  section { margin-top: 3.4rem; }
+  section.lede { margin-top: 2rem; }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.9rem;
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0 0 1.1rem;
+  }
+  h2 .h2-num {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: .8rem;
+    color: var(--accent-ink);
+    letter-spacing: .1em;
+    display: block;
+    margin-bottom: .5rem;
+  }
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.24rem;
+    letter-spacing: -0.01em;
+    margin: 2.3rem 0 .6rem;
+  }
+  p { margin: 0 0 1.2rem; }
+  .content a { color: var(--accent-ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+
+  ul { margin: 0 0 1.3rem; padding-left: 1.1rem; }
+  li { margin: 0 0 .55rem; padding-left: .3rem; }
+  li::marker { color: var(--accent); }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: .84em;
+    background: var(--sunk);
+    padding: .12em .38em;
+    border-radius: 4px;
+    border: 1px solid var(--rule);
+  }
+
+  .principle {
+    margin: 2.6rem 0;
+    padding: 0 0 0 1.4rem;
+    border-left: 3px solid var(--accent);
+  }
+  .principle p {
+    font-family: var(--font-body);
+    font-style: italic;
+    font-size: 1.5rem;
+    line-height: 1.34;
+    color: var(--ink);
+    margin: 0 0 .5rem;
+    text-wrap: pretty;
+  }
+  .principle .who {
+    font-family: var(--font-mono);
+    font-style: normal;
+    font-size: .74rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  figure {
+    margin: 2.4rem 0;
+    width: 100%;
+    max-width: var(--wide);
+  }
+  @media (min-width: 1140px) {
+    figure { max-width: var(--wide); }
+  }
+  .figframe {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 1.6rem;
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+  }
+  figure svg { display: block; width: 100%; height: auto; color: var(--ink); }
+  figcaption {
+    font-family: var(--font-mono);
+    font-size: .76rem;
+    line-height: 1.5;
+    color: var(--ink-faint);
+    margin-top: .85rem;
+    letter-spacing: .01em;
+  }
+  figcaption b { color: var(--ink-soft); font-weight: 600; }
+
+  .code {
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    margin: 2rem 0;
+    max-width: var(--wide);
+    overflow: hidden;
+  }
+  .code-head {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    padding: .7rem 1.1rem;
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+  }
+  .code pre {
+    margin: 0;
+    padding: 1.15rem 1.3rem;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: .82rem;
+    line-height: 1.7;
+    color: var(--ink);
+  }
+  .code .c { color: var(--ink-faint); }
+  .code .k { color: var(--accent-ink); }
+  .code .s { color: var(--warn); }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin: 1.6rem 0 2rem;
+    max-width: var(--wide);
+  }
+  .chip {
+    font-family: var(--font-mono);
+    font-size: .8rem;
+    padding: .4rem .7rem;
+    border-radius: 6px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    color: var(--ink-soft);
+  }
+  .chip span { color: var(--ink-faint); }
+
+  .tablewrap { max-width: var(--wide); margin: 2rem 0; overflow-x: auto; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: .8rem;
+  }
+  th, td {
+    text-align: left;
+    padding: .6rem .8rem;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  th {
+    font-weight: 600;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-size: .68rem;
+  }
+  td { color: var(--ink-soft); }
+  .pill {
+    display: inline-block;
+    padding: .16rem .5rem;
+    border-radius: 999px;
+    font-size: .72rem;
+    border: 1px solid;
+  }
+  .pill.pass { color: var(--accent-ink); background: var(--accent-soft); border-color: var(--accent); }
+  .pill.hold { color: var(--warn); background: var(--warn-soft); border-color: var(--warn); }
+  .pill.drop { color: var(--fail); background: var(--fail-soft); border-color: var(--fail); }
+  .pill.wait { color: var(--ink-faint); background: var(--sunk); border-color: var(--rule); }
+
+  .note {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 1.2rem 1.4rem;
+    margin: 2rem 0;
+    max-width: var(--measure);
+  }
+  .note p { margin: 0; font-size: 1.02rem; line-height: 1.55; }
+  .note .note-label {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    display: block;
+    margin-bottom: .4rem;
+  }
+
+  .kicker-close {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.5rem;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    color: var(--accent);
+    margin: 2.4rem 0 0;
+    text-wrap: balance;
+  }
+
+  footer {
+    width: 100%;
+    max-width: var(--measure);
+    margin-top: 4.5rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    line-height: 1.7;
+    color: var(--ink-faint);
+  }
+  footer a { color: var(--accent-ink); text-decoration: none; }
+
+  .reveal { opacity: 0; transform: translateY(12px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; }
+    .reveal { opacity: 1 !important; transform: none !important; transition: none; }
+    .rail li, .rail li::before { transition: none; }
+  }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <p class="kicker">DQX Studio &middot; Field notes</p>
+    <h1>Everything The Docs <em>Don&rsquo;t Say Yet</em></h1>
+    <p class="standfirst">DQX Studio already has its own documentation for the rule editor, the approval workflow, the scheduler. This is what running it against real pipelines, real approvers, and a growing quarantine table made us add on top of it &mdash; and around it. It'll be out of date the next time we ship something, and that's fine.</p>
+    <p class="byline">By Keerthi Math &middot; related: <a href="../agent-proposes-dqx-disposes/">Agent Proposes, DQX Disposes</a> &middot; ~11 min read</p>
+  </header>
+
+  <nav class="rail" aria-label="Contents">
+    <div class="rail-track">
+      <ol id="railList">
+        <li data-stage="preview">Preview without SQL</li>
+        <li data-stage="run">Two ways to run</li>
+        <li data-stage="provenance">Prompt provenance</li>
+        <li data-stage="global">Global rules</li>
+        <li data-stage="crosstable">Cross-table checks</li>
+        <li data-stage="alerting">Alerting</li>
+        <li data-stage="scope">Schedule scope</li>
+        <li data-stage="loop">The remediation loop</li>
+        <li data-stage="validator">dqx-validator</li>
+        <li data-stage="genie">Ask Genie</li>
+      </ol>
+    </div>
+  </nav>
+
+  <main class="content">
+
+    <section class="lede">
+      <p><a href="https://databrickslabs.github.io/dqx/">DQX</a> gives you check functions and an engine. DQX Studio &mdash; the UI and control plane we run on top of it &mdash; gives you a place to author, approve, schedule, and review those checks without writing a notebook. Studio itself is documented elsewhere; this isn&rsquo;t that document.</p>
+      <p>This is the list of things that turned out to be missing once real people, not just a pipeline, depended on it. An analyst who wants to see the data before writing a filter. An approver who wants to know why a rule looks the way it does, six weeks later. A scheduler that has to decide, unattended, whether &ldquo;the last hour&rdquo; means anything for a given table. A quarantine table that needs an owner other than whoever happens to open it.</p>
+      <p>What follows, roughly in the order we hit them.</p>
+
+      <figure class="reveal">
+        <div class="figframe">
+          <svg viewBox="0 0 720 260" role="img" aria-labelledby="layerscap" xmlns="http://www.w3.org/2000/svg">
+            <title id="layerscap">Three layers: the open-source DQX library at the base, DQX Studio's own documented UI and control plane above it, and this post's ten additions as the outermost layer, all calling the same public engine.</title>
+            <g font-family="var(--font-mono)" font-size="12">
+              <rect x="0" y="196" width="720" height="46" rx="8" fill="var(--sunk)" stroke="var(--rule)"/>
+              <text x="16" y="224" fill="var(--ink)" font-weight="600">databricks-labs-dqx</text>
+              <text x="168" y="224" fill="var(--ink-faint)">check_funcs &middot; DQEngine &middot; profiler &mdash; the engine, unmodified</text>
+
+              <rect x="0" y="128" width="720" height="52" rx="8" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="16" y="150" fill="var(--ink)" font-weight="600">DQX Studio</text>
+              <text x="112" y="150" fill="var(--ink-faint)">author &middot; approve &middot; schedule &middot; review &mdash; documented elsewhere</text>
+              <text x="16" y="169" fill="var(--ink-faint)">React + FastAPI, deployed as a Databricks App</text>
+
+              <rect x="0" y="20" width="720" height="92" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+              <text x="16" y="44" fill="var(--accent-ink)" font-weight="600">This post</text>
+              <text x="94" y="44" fill="var(--ink-soft)">the ten (eleven, twelve&#8230;) things below</text>
+              <text x="16" y="66" fill="var(--ink-soft)" font-size="11.5">NL preview &middot; dual run modes &middot; prompt provenance &middot; global rules &middot; cross-table fixes</text>
+              <text x="16" y="84" fill="var(--ink-soft)" font-size="11.5">Teams + Site24x7 &middot; schedule scope &middot; remediation loop &middot; dqx-validator &middot; Genie</text>
+              <text x="16" y="102" fill="var(--ink-faint)" font-size="11">still a caller of the public API &mdash; nothing here is a fork</text>
+
+              <line x1="360" y1="112" x2="360" y2="128" stroke="var(--ink-faint)"/>
+              <line x1="360" y1="180" x2="360" y2="196" stroke="var(--ink-faint)"/>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> Three layers, one API contract. Studio's own docs cover the middle layer; this post is the outer one.</figcaption>
+      </figure>
+    </section>
+
+    <section data-stage="preview">
+      <h2><span class="h2-num">01</span>Preview the data before you write anything</h2>
+      <p>Every rule starts with someone looking at the table. The preview panel in the rule editor runs a live sample against Unity Catalog under the caller&rsquo;s own identity &mdash; on-behalf-of, so row filters and column masks apply the same way they would to any other query that person runs &mdash; with two things layered on:</p>
+      <ul>
+        <li><strong>A column picker</strong> to narrow a wide table down to what&rsquo;s relevant before you start authoring a check against it.</li>
+        <li><strong>A natural-language filter box.</strong> Type &ldquo;orders from the last week with a null customer_id&rdquo; and it&rsquo;s handed to a Foundation Model with the table&rsquo;s real column list and a hard constraint &mdash; use only these columns, always cap the row count, default to a plain <code>SELECT *</code> if the request doesn&rsquo;t resolve to anything sensible. The model returns SQL, not an answer; if the call fails for any reason, the preview falls back to an ordinary unfiltered sample rather than erroring out.</li>
+      </ul>
+      <p>Small feature, but it collapses the gap between &ldquo;I can describe the bad rows&rdquo; and &ldquo;I can write a SQL predicate for them&rdquo; &mdash; which is most of the distance between a domain expert and a rule.</p>
+    </section>
+
+    <section data-stage="run">
+      <h2><span class="h2-num">02</span>Two ways to run a check, on purpose</h2>
+      <p>Databricks Apps don&rsquo;t run Spark. So every dry run has to leave the app process one way or another &mdash; and we deliberately built two different exits for it, because &ldquo;fast&rdquo; and &ldquo;exactly how it&rsquo;ll run in production&rdquo; are different needs.</p>
+      <ul>
+        <li><strong>Run Locally</strong> executes against a small sample through a local, serverless Spark session &mdash; a few seconds, no job to wait on. Good for iterating on a rule while you&rsquo;re still writing it.</li>
+        <li><strong>Run as Workflow</strong> submits the same check to the actual task-runner job &mdash; the identical path a schedule will use in production, including the real sample size and Row Scope. Slower, but it&rsquo;s not a simulation of the production path, it <em>is</em> the production path.</li>
+      </ul>
+      <p>An author uses the first ten times while shaping a rule and the second once, right before submitting it for approval, to confirm it survives contact with the real execution environment.</p>
+    </section>
+
+    <section data-stage="provenance">
+      <h2><span class="h2-num">03</span>Every rule remembers how it was made</h2>
+      <p>A rule authored six weeks ago, by someone else, using a phrase like &ldquo;flag orders where the region code doesn&rsquo;t match our list&rdquo; &mdash; an approver reviewing that later shouldn&rsquo;t have to reverse-engineer intent from a YAML blob. Two things carry that context forward: a full audit trail (<code>dq_quality_rules_history</code>) recording every version, every status transition, and who made it, not just the current state; and, for AI-generated checks specifically, the original natural-language instruction travels with the rule as metadata rather than being discarded once the check function comes back. The prompt that produced a rule is part of the rule&rsquo;s own record, not a one-time scratch input.</p>
+    </section>
+
+    <section data-stage="global">
+      <h2><span class="h2-num">04</span>Global rules, for the check that isn&rsquo;t about one table</h2>
+      <p>Most checks are bound to a table &mdash; <code>orders.customer_id is not null</code>. Some aren&rsquo;t really about a table at all; they&rsquo;re about a <em>shape</em>: &ldquo;any column named <code>email</code> should look like an email,&rdquo; regardless of which of forty tables it shows up in. Global rules are authored once, table-independent, and apply wherever a matching column exists &mdash; without re-authoring the same check forty times or drifting slightly different each time someone copies it.</p>
+    </section>
+
+    <section data-stage="crosstable">
+      <h2><span class="h2-num">05</span>Cross-table checks, and what production found</h2>
+      <p>DQX&rsquo;s <code>sql_query</code> check is the right tool for anything that isn&rsquo;t row-local &mdash; a duplicate key, a referential mismatch between two tables. It also has a real contract: an explicit <code>condition</code> column, and <code>merge_columns</code> to join violations back to specific input rows. An author writing &ldquo;give me the rows that violate this&rdquo; doesn&rsquo;t know that contract, and shouldn&rsquo;t have to.</p>
+
+      <div class="code">
+        <div class="code-head">what an author writes vs. what DQX's engine requires</div>
+<pre><span class="c">-- authored</span>
+<span class="k">SELECT</span> customer_id, status
+<span class="k">FROM</span> orders
+<span class="k">WHERE</span> status <span class="k">NOT IN</span> (<span class="s">'open'</span>, <span class="s">'closed'</span>)
+
+<span class="c">-- auto-wrapped for DQX's sql_query check on save</span>
+<span class="k">SELECT</span> customer_id, status, <span class="k">TRUE AS</span> condition
+<span class="k">FROM</span> (<span class="k">SELECT</span> customer_id, status <span class="k">FROM</span> orders
+      <span class="k">WHERE</span> status <span class="k">NOT IN</span> (<span class="s">'open'</span>, <span class="s">'closed'</span>)) t
+<span class="c">-- merge_columns derived automatically: [customer_id, status]</span>
+</pre>
+      </div>
+
+      <p>The editor derives that wrap on save, and only trusts a column as a merge key once it&rsquo;s checked against the target table&rsquo;s <em>real</em> schema &mdash; a renamed join column looks safe in the query text and fails at execution time, so schema-text alone isn&rsquo;t enough. A related fix went the other way: for a query that doesn&rsquo;t actually depend on its home table&rsquo;s rows (its own independent join), the engine was pre-sampling that input before the check ran, which could silently drop real violations whose key wasn&rsquo;t in the sampled slice. The fix routes that shape through the same fast path a true cross-table check already used, instead of teaching the row-level engine a special case.</p>
+      <p>Underneath both: Unity Catalog metadata reaching a fresh serverless job can lag well behind a SQL warehouse seeing the same object, so the read path needed a retry budget sized off actual observed timelines, not a guess.</p>
+    </section>
+
+    <section data-stage="alerting">
+      <h2><span class="h2-num">06</span>Alerting that isn&rsquo;t just &ldquo;check the app&rdquo;</h2>
+      <p>A validation result nobody sees is worth nothing. Two channels out:</p>
+      <ul>
+        <li><strong>Microsoft Teams</strong> webhooks, scoped per channel by trigger &mdash; all runs, scheduled-only, or manual-only &mdash; so a channel used for production monitoring doesn&rsquo;t fill up with every dry run an author fires off while iterating.</li>
+        <li><strong>Site24x7</strong>, or any uptime monitor, via a pair of read-only status endpoints &mdash; latest result by table, or by a specific run id &mdash; that return a plain 200 on a clean run and a 503 the moment error rows show up. External monitoring infrastructure gets to treat data quality the same way it treats an HTTP health check, without knowing anything about DQX.</li>
+      </ul>
+    </section>
+
+    <section data-stage="scope">
+      <h2><span class="h2-num">07</span>Schedules that know what they&rsquo;re sampling</h2>
+      <p>&ldquo;Validate the last hour&rdquo; only means something if the scheduler knows which column is time, and on a table it&rsquo;s never seen before, that&rsquo;s a real guess. It tries typed timestamp/date columns first, then a name-priority list, and surfaces the candidates as editable tags &mdash; a schedule owner can pin the right one, remove one that&rsquo;s wrong for their table, or leave it on automatic. Row Scope pairs with tag-based scope filtering, so one schedule can target &ldquo;every approved rule labeled <code>pii</code>&rdquo; across every table that has one, on either the full table or a time-windowed sample, instead of one schedule per table.</p>
+    </section>
+
+    <section data-stage="loop">
+      <h2><span class="h2-num">08</span>Closing the loop, not just quarantining</h2>
+      <p>Everything above eventually produces failing rows, and Studio&rsquo;s side of what happens to them is deliberately small: a per-dataset YAML runbook, edited or uploaded in the app, written straight to a Unity Catalog Volume. The app checks that it&rsquo;s valid YAML and writes it &mdash; it doesn&rsquo;t parse rule names, strategies, or parameters, so a new remediation strategy is a change to the consuming pipeline, never to Studio.</p>
+      <p>What reads those runbooks &mdash; an agentic re-ingestion system that tries the documented fix first and falls back to an LLM only for what nobody has written a playbook for &mdash; is its own build, written up separately:</p>
+      <p style="text-align:center;"><a href="../agent-proposes-dqx-disposes/"><strong>Agent Proposes, DQX Disposes &rarr;</strong></a></p>
+    </section>
+
+    <section data-stage="validator">
+      <h2><span class="h2-num">09</span>dqx-validator &mdash; the write side of the dead-letter pattern</h2>
+      <p>Everything so far assumes rows are already in a Silver table by the time DQX sees them. <code>dqx-validator</code> is the piece that runs earlier &mdash; a standalone library an ingestion pipeline calls directly, mid-flight, to apply Studio&rsquo;s own approved rules to a DataFrame before it lands, and quarantine whatever fails.</p>
+      <p>It loads <code>status = 'approved'</code> checks from the same rules tables Studio&rsquo;s approval workflow writes to, resolved per-environment from a small table config. The loader is exposed as a single function, <code>approved_checks_for(table_fqns)</code>, and the agentic re-ingestion side calls the exact same function &mdash; so the checks that quarantined a row and the checks that later re-validate a proposed fix are guaranteed to be the same object, not two copies that can drift.</p>
+
+      <div class="note">
+        <span class="note-label">One naming detail that matters downstream</span>
+        <p>The quarantine table name is derived from the source: <code>&lt;catalog&gt;.&lt;quarantine_schema&gt;.&lt;source_schema&gt;_&lt;source_table&gt;</code> (or a <code>_cross_table__</code> variant for rules spanning tables). That&rsquo;s the same convention the remediation playbook&rsquo;s runbook filenames follow &mdash; the two systems agree on a dataset&rsquo;s identity without a lookup table in between.</p>
+      </div>
+
+      <p>Splitting the DataFrame is one call to DQX&rsquo;s own <code>apply_checks_by_metadata_and_split</code> &mdash; no custom validation logic, just the public engine. The quarantine row carries the input schema unchanged plus bookkeeping columns (<code>_error</code>, <code>_warning</code>, <code>_generated_at</code>, <code>_data_source</code>, <code>_rule_sources</code>, <code>_is_cross_table</code>), and one more that matters more than it looks: <code>_row_id</code>, a hash of whichever business-key columns the caller names. That&rsquo;s the field the entire review queue on the read side keys every quarantined row on. Name the wrong columns, or none, and the hash falls back to every input column &mdash; which still works, but logs a warning, because at that point two rows differing only in a bookkeeping timestamp look like two different violations instead of one.</p>
+
+      <figure class="reveal">
+        <div class="figframe">
+          <svg viewBox="0 0 720 300" role="img" aria-labelledby="loopcap2" xmlns="http://www.w3.org/2000/svg">
+            <title id="loopcap2">The full loop: an ingestion pipeline calls dqx-validator against Studio's approved checks, good rows land in Silver, bad rows go to quarantine, the remediation pipeline reads the same approved checks to fix and re-validate, and only rows that pass rejoin Silver.</title>
+            <g font-family="var(--font-mono)" font-size="12">
+              <rect x="0" y="10" width="150" height="46" rx="8" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="75" y="38" text-anchor="middle" fill="var(--ink)" font-weight="600">Ingestion job</text>
+
+              <line x1="150" y1="33" x2="212" y2="33" stroke="var(--ink-faint)" marker-end="url(#lah)"/>
+              <text x="156" y="24" fill="var(--ink-faint)" font-size="10.5">calls</text>
+
+              <rect x="212" y="10" width="150" height="46" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+              <text x="287" y="32" text-anchor="middle" fill="var(--accent-ink)" font-weight="600">dqx-validator</text>
+              <text x="287" y="47" text-anchor="middle" fill="var(--ink-soft)" font-size="10">approved_checks_for()</text>
+
+              <line x1="287" y1="56" x2="287" y2="88" stroke="var(--ink-faint)" marker-end="url(#lah)"/>
+
+              <rect x="150" y="88" width="150" height="46" rx="8" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="225" y="110" text-anchor="middle" fill="var(--ink)" font-weight="600">Silver</text>
+              <text x="225" y="125" text-anchor="middle" fill="var(--ink-soft)" font-size="10">rows that passed</text>
+
+              <rect x="360" y="88" width="150" height="46" rx="8" fill="var(--fail-soft)" stroke="var(--fail)"/>
+              <text x="435" y="110" text-anchor="middle" fill="var(--fail)" font-weight="600">Quarantine</text>
+              <text x="435" y="125" text-anchor="middle" fill="var(--ink-soft)" font-size="10">rows that failed, keyed by _row_id</text>
+              <line x1="362" y1="105" x2="300" y2="105" stroke="var(--ink-faint)"/>
+
+              <line x1="435" y1="134" x2="435" y2="166" stroke="var(--ink-faint)" marker-end="url(#lah)"/>
+
+              <rect x="360" y="166" width="150" height="52" rx="8" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="435" y="187" text-anchor="middle" fill="var(--ink)" font-weight="600">Remediation</text>
+              <text x="435" y="202" text-anchor="middle" fill="var(--ink-soft)" font-size="10">playbook, then agent fallback</text>
+              <text x="435" y="215" text-anchor="middle" fill="var(--ink-faint)" font-size="9.5">re-validated against the same approved_checks_for()</text>
+
+              <path d="M 360 192 C 300 192, 260 150, 225 138" fill="none" stroke="var(--accent)" stroke-dasharray="3 3" marker-end="url(#lahacc)"/>
+              <text x="230" y="160" fill="var(--accent-ink)" font-size="10.5">rows that pass re-validation rejoin Silver</text>
+
+              <rect x="0" y="250" width="720" height="1" fill="var(--rule)"/>
+              <text x="0" y="278" fill="var(--ink-faint)" font-size="11">Same rules table, both directions &mdash; the checks that quarantined a row are the checks that clear it back out.</text>
+
+              <defs>
+                <marker id="lah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-faint)"/>
+                </marker>
+                <marker id="lahacc" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/>
+                </marker>
+              </defs>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> Items 08 and 09 are two ends of the same loop &mdash; dqx-validator writes to quarantine, the remediation pipeline reads it back out, and both sides resolve rules the same way.</figcaption>
+      </figure>
+    </section>
+
+    <section data-stage="genie">
+      <h2><span class="h2-num">10</span>Ask it directly, instead of building another chart</h2>
+      <p>Studio has an Insights dashboard for the questions we anticipated. It doesn&rsquo;t have one for the question someone asks once, in passing &mdash; &ldquo;which tables had a spike in errors last Tuesday&rdquo; isn&rsquo;t worth a dashboard tile, but it&rsquo;s a completely reasonable thing to want to know. A Genie space scoped to Studio&rsquo;s own schema &mdash; run history, quarantine records, metrics &mdash; turns that into a conversation instead of a feature request: ask in plain language, get an answer grounded in the real tables, no ticket filed to add a chart nobody will look at again.</p>
+    </section>
+
+    <section>
+      <h2><span class="h2-num">11</span>What all of this has in common</h2>
+      <p>None of the ten items above touch the DQX library. Every one of them is a caller of its public API, the same way a notebook is &mdash; the editor, the validator library, the agentic pipeline, all of it sits beside DQX rather than inside a fork of it. That was never an accident; it&rsquo;s the only way any of this stays upgradeable as the library keeps moving.</p>
+      <p class="kicker-close">Studio is documented. This is everything the documentation doesn&rsquo;t say yet.</p>
+    </section>
+
+    <footer>
+      Built on <a href="https://databrickslabs.github.io/dqx/">DQX</a> (Databricks Labs) &mdash; React + FastAPI, deployed as a Databricks App.<br>
+      &copy; 2026 Keerthi Math &middot; <a href="https://medium.com/@kirthi.im">medium.com/@kirthi.im</a> &middot; <a href="https://github.com/keerthimath">github.com/keerthimath</a>
+    </footer>
+
+  </main>
+</div>
+
+<script>
+  (function () {
+    var stages = Array.prototype.slice.call(document.querySelectorAll("section[data-stage]"));
+    var items = {};
+    document.querySelectorAll("#railList li").forEach(function (li) { items[li.dataset.stage] = li; });
+
+    if (stages.length && "IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function () {
+        Object.keys(items).forEach(function (key) {
+          items[key].classList.remove("is-active", "is-done");
+        });
+        var activeSet = false;
+        stages.forEach(function (s) {
+          var key = s.dataset.stage;
+          var rect = s.getBoundingClientRect();
+          if (!activeSet && rect.top <= 160 && rect.bottom > 80) {
+            items[key].classList.add("is-active");
+            activeSet = true;
+          } else if (rect.top <= 160) {
+            items[key].classList.add("is-done");
+          }
+        });
+      }, { rootMargin: "-80px 0px -60% 0px", threshold: [0, 1] });
+      stages.forEach(function (s) { io.observe(s); });
+    }
+
+    var revealEls = document.querySelectorAll(".reveal");
+    if (revealEls.length && "IntersectionObserver" in window) {
+      var rio = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) { e.target.classList.add("in"); rio.unobserve(e.target); }
+        });
+      }, { threshold: .15 });
+      revealEls.forEach(function (el) { rio.observe(el); });
+    } else {
+      revealEls.forEach(function (el) { el.classList.add("in"); });
+    }
+  })();
+</script>
+</body>
+</html>
