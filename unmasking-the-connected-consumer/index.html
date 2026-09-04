@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unmasking the Connected Consumer</title>
+<meta name="description" content="Turning messy identity-resolution data into an interactive, cluster-aware graph explorer with Streamlit, NetworkX, and a Databricks SQL Warehouse.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400;1,8..60,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground: #F3F5F2;
+    --surface: #FFFFFF;
+    --sunk: #EBEEE9;
+    --ink: #1A1F1C;
+    --ink-soft: #495049;
+    --ink-faint: #79817A;
+    --rule: #D9DDD6;
+    --accent: #1E6B54;
+    --accent-ink: #16513F;
+    --accent-soft: #E3EFE8;
+    --warn: #A2652C;
+    --warn-soft: #F1E7D9;
+    --fail: #9B3B33;
+    --fail-soft: #F0DFDC;
+    --shadow: 0 1px 2px rgba(26,31,28,.04), 0 8px 24px -12px rgba(26,31,28,.12);
+
+    --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --font-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --measure: 42rem;
+    --wide: 60rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #121613;
+      --surface: #1A201C;
+      --sunk: #0F130F;
+      --ink: #E8ECE6;
+      --ink-soft: #A6AFA6;
+      --ink-faint: #79827A;
+      --rule: #2C332D;
+      --accent: #5CC0A0;
+      --accent-ink: #7FD1B5;
+      --accent-soft: #17281F;
+      --warn: #D49B65;
+      --warn-soft: #2C2318;
+      --fail: #D28178;
+      --fail-soft: #2D1D1B;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.55);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #121613;
+    --surface: #1A201C;
+    --sunk: #0F130F;
+    --ink: #E8ECE6;
+    --ink-soft: #A6AFA6;
+    --ink-faint: #79827A;
+    --rule: #2C332D;
+    --accent: #5CC0A0;
+    --accent-ink: #7FD1B5;
+    --accent-soft: #17281F;
+    --warn: #D49B65;
+    --warn-soft: #2C2318;
+    --fail: #D28178;
+    --fail-soft: #2D1D1B;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.55);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 1.1875rem;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    font-optical-sizing: auto;
+  }
+
+  .page {
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 0 1.4rem 6rem;
+  }
+
+  .rail { display: none; }
+
+  @media (min-width: 1140px) {
+    .page {
+      grid-template-columns: 15rem minmax(0, var(--wide));
+      justify-items: start;
+      column-gap: 2rem;
+      padding-right: 2rem;
+    }
+    .masthead, .flow, .content { grid-column: 2; }
+    .rail {
+      display: block;
+      grid-column: 1;
+      grid-row: 2 / 4;
+      position: sticky;
+      top: 2.5rem;
+      align-self: start;
+      padding-top: .4rem;
+      font-family: var(--font-mono);
+      font-size: .72rem;
+      letter-spacing: .04em;
+    }
+    .rail ol { list-style: none; margin: 0; padding: 0; }
+    .rail li {
+      display: flex;
+      align-items: baseline;
+      gap: .7rem;
+      padding: .5rem 0;
+      color: var(--ink-faint);
+      transition: color .25s ease;
+      line-height: 1.3;
+    }
+    .rail li::before {
+      content: "";
+      flex: none;
+      width: 7px; height: 7px;
+      margin-top: .15rem;
+      border-radius: 50%;
+      background: var(--rule);
+      box-shadow: 0 0 0 3px var(--ground);
+      transition: background .25s ease, transform .25s ease;
+    }
+    .rail li.is-active { color: var(--ink); }
+    .rail li.is-active::before { background: var(--accent); transform: scale(1.25); }
+    .rail li.is-done { color: var(--ink-soft); }
+    .rail li.is-done::before { background: var(--accent); opacity: .5; }
+    .rail .rail-track {
+      position: relative;
+      border-left: 1px solid var(--rule);
+      margin-left: 3px;
+      padding-left: 1rem;
+    }
+  }
+
+  .masthead {
+    width: 100%;
+    max-width: var(--measure);
+    padding: 5rem 0 2.5rem;
+  }
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin: 0 0 1.6rem;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(2.6rem, 7vw, 4.35rem);
+    line-height: 1.02;
+    letter-spacing: -0.022em;
+    text-wrap: balance;
+    margin: 0 0 1.4rem;
+  }
+  h1 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .standfirst {
+    font-size: 1.32rem;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    margin: 0 0 2rem;
+    text-wrap: pretty;
+  }
+  .byline {
+    font-family: var(--font-mono);
+    font-size: .8rem;
+    color: var(--ink-faint);
+    letter-spacing: .02em;
+    border-top: 1px solid var(--rule);
+    padding-top: 1.1rem;
+  }
+  .byline a { color: var(--accent-ink); text-decoration: none; }
+  .byline a:hover { text-decoration: underline; }
+
+  .content { width: 100%; max-width: var(--measure); }
+  .content > * { max-width: var(--measure); }
+
+  section { margin-top: 3.4rem; }
+  section.lede { margin-top: 2rem; }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.9rem;
+    line-height: 1.12;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0 0 1.1rem;
+  }
+  h2 .h2-num {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: .8rem;
+    color: var(--accent-ink);
+    letter-spacing: .1em;
+    display: block;
+    margin-bottom: .5rem;
+  }
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.24rem;
+    letter-spacing: -0.01em;
+    margin: 2.3rem 0 .6rem;
+  }
+  p { margin: 0 0 1.2rem; }
+  .content a { color: var(--accent-ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+
+  ul { margin: 0 0 1.3rem; padding-left: 1.1rem; }
+  li { margin: 0 0 .55rem; padding-left: .3rem; }
+  li::marker { color: var(--accent); }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: .84em;
+    background: var(--sunk);
+    padding: .12em .38em;
+    border-radius: 4px;
+    border: 1px solid var(--rule);
+  }
+
+  .principle {
+    margin: 2.6rem 0;
+    padding: 0 0 0 1.4rem;
+    border-left: 3px solid var(--accent);
+  }
+  .principle p {
+    font-family: var(--font-body);
+    font-style: italic;
+    font-size: 1.5rem;
+    line-height: 1.34;
+    color: var(--ink);
+    margin: 0 0 .5rem;
+    text-wrap: pretty;
+  }
+  .principle .who {
+    font-family: var(--font-mono);
+    font-style: normal;
+    font-size: .74rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  figure {
+    margin: 2.4rem 0;
+    width: 100%;
+    max-width: var(--wide);
+  }
+  @media (min-width: 1140px) {
+    figure { max-width: var(--wide); }
+  }
+  .figframe {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 1.6rem;
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+  }
+  figure svg { display: block; width: 100%; height: auto; color: var(--ink); }
+  figcaption {
+    font-family: var(--font-mono);
+    font-size: .76rem;
+    line-height: 1.5;
+    color: var(--ink-faint);
+    margin-top: .85rem;
+    letter-spacing: .01em;
+  }
+  figcaption b { color: var(--ink-soft); font-weight: 600; }
+
+  .code {
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    margin: 2rem 0;
+    max-width: var(--wide);
+    overflow: hidden;
+  }
+  .code-head {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    padding: .7rem 1.1rem;
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+  }
+  .code pre {
+    margin: 0;
+    padding: 1.15rem 1.3rem;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: .82rem;
+    line-height: 1.7;
+    color: var(--ink);
+  }
+  .code .c { color: var(--ink-faint); }
+  .code .k { color: var(--accent-ink); }
+  .code .s { color: var(--warn); }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin: 1.6rem 0 2rem;
+    max-width: var(--wide);
+  }
+  .chip {
+    font-family: var(--font-mono);
+    font-size: .8rem;
+    padding: .4rem .7rem;
+    border-radius: 6px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    color: var(--ink-soft);
+  }
+  .chip span { color: var(--ink-faint); }
+
+  .tablewrap { max-width: var(--wide); margin: 2rem 0; overflow-x: auto; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: .8rem;
+  }
+  th, td {
+    text-align: left;
+    padding: .6rem .8rem;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  th {
+    font-weight: 600;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-size: .68rem;
+  }
+  td { color: var(--ink-soft); }
+  .pill {
+    display: inline-block;
+    padding: .16rem .5rem;
+    border-radius: 999px;
+    font-size: .72rem;
+    border: 1px solid;
+  }
+  .pill.pass { color: var(--accent-ink); background: var(--accent-soft); border-color: var(--accent); }
+  .pill.hold { color: var(--warn); background: var(--warn-soft); border-color: var(--warn); }
+  .pill.drop { color: var(--fail); background: var(--fail-soft); border-color: var(--fail); }
+  .pill.wait { color: var(--ink-faint); background: var(--sunk); border-color: var(--rule); }
+
+  .note {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 1.2rem 1.4rem;
+    margin: 2rem 0;
+    max-width: var(--measure);
+  }
+  .note p { margin: 0; font-size: 1.02rem; line-height: 1.55; }
+  .note .note-label {
+    font-family: var(--font-mono);
+    font-size: .72rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    display: block;
+    margin-bottom: .4rem;
+  }
+
+  .kicker-close {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.5rem;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    color: var(--accent);
+    margin: 2.4rem 0 0;
+    text-wrap: balance;
+  }
+
+  footer {
+    width: 100%;
+    max-width: var(--measure);
+    margin-top: 4.5rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    line-height: 1.7;
+    color: var(--ink-faint);
+  }
+  footer a { color: var(--accent-ink); text-decoration: none; }
+
+  .reveal { opacity: 0; transform: translateY(12px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; }
+    .reveal { opacity: 1 !important; transform: none !important; transition: none; }
+    .rail li, .rail li::before { transition: none; }
+  }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <p class="kicker">Identity resolution · interactive graphs</p>
+    <h1>Unmasking the <em>Connected Consumer</em></h1>
+    <p class="standfirst">Behind every clean &ldquo;Golden Record&rdquo; is a messy web of shared emails, phones, and legacy IDs. Here&rsquo;s how we turned that web into an interactive, cluster-aware graph a data steward can actually work with &mdash; built on Streamlit, NetworkX, and a Databricks SQL Warehouse.</p>
+    <p class="byline">By Keerthi Math &middot; <a href="https://medium.com/@kirthi.im">medium.com/@kirthi.im</a> &middot; ~7 min read</p>
+  </header>
+
+  <nav class="rail" aria-label="Article sections">
+    <div class="rail-track">
+      <ol id="railList">
+        <li data-stage="topology">Tables to topology</li>
+        <li data-stage="architecture">Graph-first architecture</li>
+        <li data-stage="clusters">Cluster filtering</li>
+        <li data-stage="performance">Engineering for speed</li>
+        <li data-stage="quality">Data quality, live</li>
+      </ol>
+    </div>
+  </nav>
+
+  <main class="content">
+
+    <section class="lede">
+      <p>In the world of Master Data Management, the &ldquo;Single View of the Customer&rdquo; is the holy grail. But behind every clean Golden Record lies a messy web of raw data: five different email addresses, shared phone numbers, and legacy system IDs that may or may not belong to the same person.</p>
+      <p>Identifying these links is <strong>identity resolution</strong>. Visualizing them, however, is where the real insights happen &mdash; and where we built the <strong>Entity Linkage Explorer</strong>: a Streamlit app that lets data stewards traverse identity clusters, isolate specific data &ldquo;islands,&rdquo; and filter out noisy attributes in real time, all against a live Databricks SQL Warehouse.</p>
+
+      <figure class="reveal">
+        <div class="figframe" style="padding:0;overflow:hidden;">
+          <svg viewBox="0 0 900 552" role="img" aria-labelledby="appcap" xmlns="http://www.w3.org/2000/svg">
+            <title id="appcap">A recreation of the Entity Linkage Explorer running as a Databricks App: a sidebar with linkage attributes, an exclusions box, and active-cluster toggles beside the rendered graph of a household cluster.</title>
+            <rect x="0" y="0" width="900" height="552" rx="10" fill="#ffffff" stroke="#d9ddd6"/>
+            <rect x="1" y="1" width="898" height="33" rx="9" fill="#f6f7f9"/>
+            <line x1="0" y1="34" x2="900" y2="34" stroke="#e3e6e9"/>
+            <circle cx="17" cy="17" r="4.5" fill="#e0665e"/>
+            <circle cx="33" cy="17" r="4.5" fill="#e8c15b"/>
+            <circle cx="49" cy="17" r="4.5" fill="#61c454"/>
+            <text x="76" y="21.5" font-family="'IBM Plex Mono', ui-monospace, monospace" font-size="11" fill="#6b7280">entity-linkage-explorer &middot; Databricks App</text>
+
+            <rect x="0" y="34" width="232" height="518" fill="#f0f2f6"/>
+            <line x1="232" y1="34" x2="232" y2="552" stroke="#d8dce2"/>
+            <g font-family="'Source Sans Pro', -apple-system, sans-serif">
+              <text x="18" y="64" font-size="14" font-weight="700" fill="#31333f">Identity Explorer</text>
+
+              <text x="18" y="90" font-family="'IBM Plex Mono', ui-monospace, monospace" font-size="8.5" letter-spacing="0.5" fill="#808495">LINKAGE ID</text>
+              <rect x="18" y="97" width="196" height="25" rx="4" fill="#ffffff" stroke="#ccd2d9"/>
+              <text x="25" y="113.5" font-family="'IBM Plex Mono', ui-monospace, monospace" font-size="8.5" fill="#41444c">ZLOV7J3+Mi+J&#8230;X9pxQp/U=</text>
+
+              <text x="18" y="141" font-family="'IBM Plex Mono', ui-monospace, monospace" font-size="8.5" letter-spacing="0.5" fill="#808495">LINKAGE ATTRIBUTES</text>
+              <g font-size="9.5" fill="#c22e2e">
+                <rect x="18" y="148" width="55" height="21" rx="10.5" fill="#ffeded" stroke="#f4a19c"/>
+                <text x="30" y="163" fill="#c22e2e">email &times;</text>
+                <rect x="78" y="148" width="52" height="21" rx="10.5" fill="#ffeded" stroke="#f4a19c"/>
+                <text x="89" y="163" fill="#c22e2e">phone &times;</text>
+                <rect x="135" y="148" width="62" height="21" rx="10.5" fill="#ffeded" stroke="#f4a19c"/>
+                <text x="146" y="163" fill="#c22e2e">address &times;</text>
+              </g>
+
+              <text x="18" y="196" font-family="'IBM Plex Mono', ui-monospace, monospace" font-size="8.5" letter-spacing="0.5" fill="#808495">EXCLUSIONS (COMMA SEPARATED)</text>
+              <rect x="18" y="203" width="196" height="46" rx="4" fill="#ffffff" stroke="#ff4b4b" stroke-width="1.4"/>
+              <text x="25" y="221" font-family="'IBM Plex Mono', ui-monospace, monospace" font-size="8.5" fill="#41444c">3134567890</text>
+
+              <text x="18" y="273" font-family="'IBM Plex Mono', ui-monospace, monospace" font-size="8.5" letter-spacing="0.5" fill="#808495">ACTIVE CLUSTERS</text>
+              <rect x="18" y="280" width="196" height="21" rx="10.5" fill="#ffeded" stroke="#f4a19c"/>
+              <text x="27" y="294.5" font-size="9.5" fill="#c22e2e">Cluster 1: Jon Doe (9) &times;</text>
+            </g>
+
+            <g font-family="'Archivo', sans-serif">
+              <text x="254" y="68" font-size="17" font-weight="700" fill="#31333f">Entity Linkage: ZLOV7J3+Mi&#8230;</text>
+            </g>
+            <text x="254" y="90" font-family="'IBM Plex Mono', ui-monospace, monospace" font-size="10" fill="#808495">Showing 9 nodes across 1 cluster</text>
+
+            <rect x="254" y="104" width="622" height="428" rx="8" fill="#ffffff" stroke="#e3e6e9"/>
+
+            <g stroke="#d7dce1" stroke-width="1.2">
+              <line x1="560" y1="296" x2="422" y2="210"/>
+              <line x1="560" y1="296" x2="560" y2="168"/>
+              <line x1="560" y1="296" x2="698" y2="210"/>
+              <line x1="560" y1="296" x2="432" y2="404"/>
+              <line x1="560" y1="296" x2="698" y2="404"/>
+              <line x1="698" y1="404" x2="432" y2="404"/>
+            </g>
+
+            <g font-family="'IBM Plex Mono', ui-monospace, monospace" font-size="9.5" fill="#5b6270">
+              <circle cx="560" cy="310" r="17" fill="#eef1ee" stroke="#8a9490"/>
+              <text x="560" y="315" text-anchor="middle" font-size="14" fill="#5b6270">&#9787;</text>
+              <text x="560" y="345" text-anchor="middle" font-weight="600" fill="#31333f">Jon Doe</text>
+
+              <circle cx="422" cy="196" r="11" fill="#eef1ee" stroke="#c7ccd2"/>
+              <text x="422" y="200" text-anchor="middle" font-size="10" fill="#5b6270">@</text>
+              <text x="422" y="221" text-anchor="middle" font-size="8.5">johndoe@yahoo.com</text>
+
+              <circle cx="560" cy="154" r="11" fill="#eef1ee" stroke="#c7ccd2"/>
+              <text x="560" y="158" text-anchor="middle" font-size="10" fill="#5b6270">@</text>
+              <text x="560" y="138" text-anchor="middle" font-size="8.5">johnrjr@yahoo.com</text>
+
+              <circle cx="698" cy="196" r="11" fill="#eef1ee" stroke="#c7ccd2"/>
+              <text x="698" y="200" text-anchor="middle" font-size="10" fill="#5b6270">&#9742;</text>
+              <text x="698" y="221" text-anchor="middle" font-size="8.5">9111118876</text>
+
+              <circle cx="432" cy="404" r="13" fill="#eef1ee" stroke="#c7ccd2"/>
+              <text x="432" y="408" text-anchor="middle" font-size="11" fill="#5b6270">&#8962;</text>
+              <text x="432" y="428" text-anchor="middle" font-size="8.5">1234 fake street houston</text>
+
+              <circle cx="698" cy="404" r="15" fill="#eef1ee" stroke="#8a9490"/>
+              <text x="698" y="409" text-anchor="middle" font-size="13" fill="#5b6270">&#9787;</text>
+              <text x="698" y="432" text-anchor="middle" font-weight="600" fill="#31333f">Jon Doe Jr</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 1.</b> The Entity Linkage Explorer running as a Databricks App &mdash; the sidebar drives what the graph shows; the canvas renders only the clusters the steward has toggled on.</figcaption>
+      </figure>
+    </section>
+
+    <section data-stage="topology">
+      <h2><span class="h2-num">01</span>From tables to topology</h2>
+      <p>Traditional data quality tools give you a table. But tables are terrible at showing <strong>transitive relationships</strong>. If Person A shares an email with Person B, and Person B shares a phone number with Person C, a table makes it hard to see that all three might be the same household.</p>
+
+      <div class="principle">
+        <p>Tables show rows. They don&rsquo;t show the shape of a relationship.</p>
+        <span class="who">The core problem</span>
+      </div>
+
+      <p>We needed a tool that could:</p>
+      <ul>
+        <li><strong>Query scale.</strong> Pull deep lineage from a Databricks SQL Warehouse without dragging the whole table across the wire.</li>
+        <li><strong>Identify clusters.</strong> Automatically group connected individuals into &ldquo;islands.&rdquo;</li>
+        <li><strong>Handle noise.</strong> Dynamically exclude junk data &mdash; <code>test@test.com</code>, <code>123 Main St</code> &mdash; that causes false links.</li>
+        <li><strong>Perform.</strong> Render hundreds of nodes without crashing the browser.</li>
+      </ul>
+    </section>
+
+    <section data-stage="architecture">
+      <h2><span class="h2-num">02</span>A four-tier, graph-first architecture</h2>
+      <p>The app separates security, data, logic, and rendering into their own tiers &mdash; each one only doing the job it&rsquo;s good at.</p>
+
+      <figure class="reveal">
+        <div class="figframe">
+          <svg viewBox="0 0 640 420" role="img" aria-labelledby="archcap">
+            <title id="archcap">Four tiers: OBO auth secures the session, the Databricks SQL Warehouse supplies narrow identity-linkage columns, NetworkX builds a person/attribute graph and finds connected components, and Streamlit plus PyVis render the result as a draggable canvas.</title>
+            <defs>
+              <marker id="a-ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-faint)"/>
+              </marker>
+            </defs>
+            <g font-family="var(--font-mono)" font-size="13">
+              <rect x="60" y="16" width="520" height="60" rx="8" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="80" y="38" fill="var(--accent-ink)" font-size="10">01 &middot; SECURITY</text>
+              <text x="80" y="58" fill="var(--ink)">OBO token &rarr; secure session with the SQL Warehouse</text>
+
+              <path d="M320 76 L320 106" stroke="var(--ink-faint)" marker-end="url(#a-ah)"/>
+
+              <rect x="60" y="108" width="520" height="60" rx="8" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="80" y="130" fill="var(--accent-ink)" font-size="10">02 &middot; DATA (DATABRICKS)</text>
+              <text x="80" y="150" fill="var(--ink)">databricks-sql-connector &mdash; email, phone, VIN, address only</text>
+
+              <path d="M320 168 L320 198" stroke="var(--ink-faint)" marker-end="url(#a-ah)"/>
+
+              <rect x="60" y="200" width="520" height="60" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
+              <text x="80" y="222" fill="var(--accent-ink)" font-size="10">03 &middot; LOGIC (NETWORKX)</text>
+              <text x="80" y="242" fill="var(--ink)">person + attribute nodes &rarr; connected components</text>
+
+              <path d="M320 260 L320 290" stroke="var(--ink-faint)" marker-end="url(#a-ah)"/>
+
+              <rect x="60" y="292" width="520" height="60" rx="8" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="80" y="314" fill="var(--accent-ink)" font-size="10">04 &middot; VISUALIZATION</text>
+              <text x="80" y="334" fill="var(--ink)">Streamlit + PyVis &rarr; draggable, zoomable HTML canvas</text>
+
+              <text x="80" y="392" fill="var(--ink-faint)" font-size="11">Every request re-enters at 01. Nothing downstream is trusted implicitly.</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 2.</b> The app captures the user&rsquo;s OBO token to establish a secure session, pulls only the columns needed for linking, builds a logical graph with NetworkX, then hands it to PyVis to render.</figcaption>
+      </figure>
+
+      <p>To keep the data tier fast, we avoid <code>SELECT *</code> and pull only the attributes necessary for linking. Before drawing anything, we build a logical graph in <strong>NetworkX</strong>: every person and every attribute &mdash; an email, a phone number, an address &mdash; becomes a node, and a shared attribute becomes an edge between the people who share it. Running <strong>Connected Components</strong> over that graph instantly identifies every isolated cluster in the dataset, no matter how many hops apart the shared attribute is.</p>
+    </section>
+
+    <section data-stage="clusters">
+      <h2><span class="h2-num">03</span>Cluster filtering tames the hairball</h2>
+      <p>One of the biggest pain points in graph visualization is the &ldquo;hairball effect&rdquo; &mdash; too many nodes create an unreadable mess. So the app never renders anything until the user has chosen what to look at.</p>
+      <p>Connected components are computed once, then listed in the sidebar as named, countable clusters:</p>
+
+      <div class="chips">
+        <span class="chip">Cluster 1: John Doe <span>(15 nodes)</span></span>
+        <span class="chip">Cluster 2: Jane Smith <span>(4 nodes)</span></span>
+      </div>
+
+      <p>Users toggle clusters on or off, and only the visible nodes are ever handed to PyVis. If a specific email address is stitching together two families that shouldn&rsquo;t be linked, the steward can see exactly which cluster it sits in and reach for the <strong>Unlink / Exclude</strong> feature to remove it &mdash; without touching anyone else&rsquo;s view.</p>
+
+      <figure class="reveal">
+        <div class="figframe">
+          <svg viewBox="0 0 780 300" role="img" aria-labelledby="clustercap">
+            <title id="clustercap">Before and after excluding a bad phone number: the cluster splits, separating a distinct person from a household that a shared phone number had wrongly linked together.</title>
+            <g font-family="var(--font-mono)" font-size="11">
+              <text x="10" y="20" fill="var(--ink-faint)" font-size="10" letter-spacing="1.2">BEFORE &mdash; ONE CLUSTER, 6 NODES</text>
+              <rect x="0" y="34" width="360" height="240" rx="8" fill="var(--surface)" stroke="var(--rule)"/>
+
+              <circle cx="180" cy="90" r="14" fill="var(--accent-soft)" stroke="var(--accent)"/>
+              <text x="180" y="94" text-anchor="middle" fill="var(--accent-ink)" font-size="10">P</text>
+              <text x="180" y="118" text-anchor="middle" fill="var(--ink-soft)" font-size="9.5">Jon Doe</text>
+
+              <circle cx="80" cy="160" r="10" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="80" y="163" text-anchor="middle" fill="var(--ink-faint)" font-size="8">@</text>
+              <circle cx="180" cy="190" r="10" fill="var(--warn-soft)" stroke="var(--warn)"/>
+              <text x="180" y="193" text-anchor="middle" fill="var(--warn)" font-size="8">&#9742;</text>
+              <circle cx="280" cy="160" r="10" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="280" y="163" text-anchor="middle" fill="var(--ink-faint)" font-size="8">&#8962;</text>
+
+              <circle cx="130" cy="230" r="12" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="130" y="233" text-anchor="middle" fill="var(--ink-faint)" font-size="9">P</text>
+              <text x="130" y="252" text-anchor="middle" fill="var(--ink-soft)" font-size="9">Jon Doe Jr</text>
+
+              <line x1="180" y1="104" x2="80" y2="150" stroke="var(--rule)"/>
+              <line x1="180" y1="104" x2="180" y2="180" stroke="var(--warn)" stroke-width="1.5"/>
+              <line x1="180" y1="104" x2="280" y2="150" stroke="var(--rule)"/>
+              <line x1="180" y1="196" x2="130" y2="222" stroke="var(--warn)" stroke-width="1.5"/>
+
+              <text x="220" y="150" fill="var(--warn)" font-size="9">3134567890</text>
+
+              <text x="420" y="20" fill="var(--accent-ink)" font-size="10" letter-spacing="1.2">AFTER &mdash; EXCLUDE &ldquo;3134567890&rdquo;</text>
+              <rect x="410" y="34" width="360" height="240" rx="8" fill="var(--surface)" stroke="var(--rule)"/>
+
+              <circle cx="530" cy="90" r="14" fill="var(--accent-soft)" stroke="var(--accent)"/>
+              <text x="530" y="94" text-anchor="middle" fill="var(--accent-ink)" font-size="10">P</text>
+              <text x="530" y="118" text-anchor="middle" fill="var(--ink-soft)" font-size="9.5">Jon Doe</text>
+
+              <circle cx="470" cy="160" r="10" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="470" y="163" text-anchor="middle" fill="var(--ink-faint)" font-size="8">@</text>
+              <circle cx="590" cy="160" r="10" fill="var(--surface)" stroke="var(--rule)"/>
+              <text x="590" y="163" text-anchor="middle" fill="var(--ink-faint)" font-size="8">&#8962;</text>
+              <line x1="530" y1="104" x2="470" y2="150" stroke="var(--rule)"/>
+              <line x1="530" y1="104" x2="590" y2="150" stroke="var(--rule)"/>
+
+              <circle cx="530" cy="240" r="12" fill="var(--surface)" stroke="var(--accent)" stroke-dasharray="2 2"/>
+              <text x="530" y="243" text-anchor="middle" fill="var(--accent-ink)" font-size="9">P</text>
+              <text x="530" y="262" text-anchor="middle" fill="var(--accent-ink)" font-size="9">Jon Doe Jr &mdash; own cluster</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption><b>Figure 3.</b> Excluding one bad phone number splits a falsely merged household into two correct clusters &mdash; the exact &ldquo;What-If&rdquo; check a data steward runs before trusting a linkage.</figcaption>
+      </figure>
+    </section>
+
+    <section data-stage="performance">
+      <h2><span class="h2-num">04</span>Engineering for performance</h2>
+      <p>Thousands of identity links can turn naive Python loops into the bottleneck. Three specific optimizations keep the UI snappy.</p>
+
+      <h3>itertuples() instead of iterrows()</h3>
+      <p><code>iterrows()</code> is notoriously slow because Pandas builds a fresh <code>Series</code> for every row. Switching to <code>itertuples()</code> improved graph-building speed by nearly <strong>50x</strong>, processing thousands of links in milliseconds.</p>
+
+      <h3>Two-layer caching</h3>
+      <p>Streamlit&rsquo;s <code>@st.cache_data</code> is split into two layers: a <strong>data cache</strong> for the raw SQL results, and a <strong>graph cache</strong> for the NetworkX object itself. Changing a purely visual setting &mdash; background color, node size &mdash; redraws the existing graph instead of re-querying Databricks or reprocessing the DataFrame.</p>
+
+      <h3>Physics stabilization</h3>
+      <p>Graph simulations are CPU-intensive. Configuring PyVis&rsquo;s <code>forceAtlas2Based</code> solver with a high stabilization threshold lets the layout settle <em>before</em> render, instead of animating a bouncing simulation that freezes the browser on large loads.</p>
+
+      <div class="code">
+        <div class="code-head">pyvis network options</div>
+<pre>net.set_options(<span class="s">"""</span>
+<span class="s">{</span>
+<span class="s">  "physics": {</span>
+<span class="s">    "solver": "forceAtlas2Based",</span>
+<span class="s">    "stabilization": {"iterations": 150}</span>
+<span class="s">  }</span>
+<span class="s">}</span>
+<span class="s">"""</span>)</pre>
+      </div>
+    </section>
+
+    <section data-stage="quality">
+      <h2><span class="h2-num">05</span>Handling data quality on the fly</h2>
+      <p>Data is rarely perfect. A generic placeholder like <code>NA</code> or a shared &ldquo;house&rdquo; phone number will link thousands of unrelated people together if you let it. The Explorer includes a <strong>Dynamic Exclusion</strong> engine: type any value into a &ldquo;Values to Remove&rdquo; box, and the app instantly:</p>
+      <ul>
+        <li>Drops those nodes from the NetworkX graph.</li>
+        <li>Recalculates the clusters.</li>
+        <li>Redraws the now-cleaned visualization.</li>
+      </ul>
+
+      <div class="note">
+        <span class="note-label">What-if analysis</span>
+        <p>&ldquo;What happens to our customer count if we treat this specific phone number as invalid?&rdquo; &mdash; the exact question a data steward can now answer in seconds instead of writing a one-off query.</p>
+      </div>
+
+      <p>This is the point of the whole tool: entity linkage isn&rsquo;t just an algorithm, it&rsquo;s human-in-the-loop verification. NetworkX supplies the analytical power; Streamlit supplies the rapid UI. Together they turn a static lineage report into something relationships can be explored, cleaned, and understood at a glance.</p>
+
+      <p class="kicker-close">Better data quality. Fewer duplicate customers. A much clearer picture of who your consumers actually are.</p>
+    </section>
+
+    <footer>
+      Built on a Databricks SQL Warehouse &mdash; <code>databricks-sql-connector</code> for the data tier, <a href="https://networkx.org/">NetworkX</a> for graph logic and connected components, <a href="https://docs.streamlit.io/">Streamlit</a> and PyVis for the rendered canvas.<br>
+      &copy; 2026 Keerthi Math &middot; <a href="https://medium.com/@kirthi.im">medium.com/@kirthi.im</a>
+    </footer>
+
+  </main>
+</div>
+
+<script>
+  (function () {
+    var stages = Array.prototype.slice.call(document.querySelectorAll("section[data-stage]"));
+    var items = {};
+    document.querySelectorAll("#railList li").forEach(function (li) { items[li.dataset.stage] = li; });
+
+    if (stages.length && "IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function () {
+        var active = null;
+        stages.forEach(function (s) {
+          var r = s.getBoundingClientRect();
+          if (r.top < window.innerHeight * 0.4) active = s.dataset.stage;
+        });
+        var passedActive = active === null;
+        Object.keys(items).forEach(function (k) {
+          items[k].classList.toggle("is-active", k === active);
+        });
+        stages.forEach(function (s) {
+          var k = s.dataset.stage;
+          if (k === active) { passedActive = true; return; }
+          items[k].classList.toggle("is-done", !passedActive);
+        });
+      }, { threshold: [0, 0.4, 1], rootMargin: "0px 0px -55% 0px" });
+      stages.forEach(function (s) { io.observe(s); });
+
+      window.addEventListener("scroll", function () {
+        var active = null;
+        stages.forEach(function (s) {
+          if (s.getBoundingClientRect().top < window.innerHeight * 0.4) active = s.dataset.stage;
+        });
+        var passed = active === null;
+        Object.keys(items).forEach(function (k) {
+          items[k].classList.toggle("is-active", k === active);
+        });
+        stages.forEach(function (s) {
+          var k = s.dataset.stage;
+          if (k === active) { passed = true; return; }
+          items[k].classList.toggle("is-done", !passed);
+        });
+      }, { passive: true });
+    }
+
+    if (!window.matchMedia || !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if ("IntersectionObserver" in window) {
+        var r = new IntersectionObserver(function (es) {
+          es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); r.unobserve(e.target); } });
+        }, { rootMargin: "0px 0px -10% 0px" });
+        document.querySelectorAll(".reveal").forEach(function (el) { r.observe(el); });
+      }
+    } else {
+      document.querySelectorAll(".reveal").forEach(function (el) { el.classList.add("in"); });
+    }
+  })();
+</script>
+</body>
+</html>

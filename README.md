@@ -9,6 +9,7 @@ Plain HTML, no build step (`.nojekyll` disables Jekyll processing).
 
 | date | post | path |
 |---|---|---|
+| 2026-09-04 | Unmasking the Connected Consumer | [`unmasking-the-connected-consumer/`](unmasking-the-connected-consumer/) |
 | 2026-08-31 | Everything The Docs Don't Say Yet | [`dqx-studio-field-notes/`](dqx-studio-field-notes/) |
 | 2026-08-31 | Agent Proposes, DQX Disposes | [`agent-proposes-dqx-disposes/`](agent-proposes-dqx-disposes/) |
 
